@@ -60,7 +60,7 @@ export class HomeComponent {
     {
       title: 'Build embeddings & vector store (RAG)',
       detail: 'Add the embedding builder and local vector store support for retrieval-augmented answers.',
-      status: 'in progress',
+      status: 'done',
     },
     {
       title: 'Add backend vector retrieval support',
@@ -80,7 +80,7 @@ export class HomeComponent {
     {
       title: 'Add unit/integration tests and CI',
       detail: 'Tests for backend endpoints, chat service, and critical UI flows. Add CI (GitHub Actions).',
-      status: 'not started',
+      status: 'in progress',
     },
     {
       title: 'Prepare deployment',
