@@ -21,15 +21,16 @@ npm install
 npm run download-docs
 ```
 
-3. Build embeddings for the local docs corpus
+3. Configure your OpenAI API key
 
 ```bash
-# Unix/macOS
-export OPENAI_API_KEY=your_api_key_here
-npm run build-embeddings
+copy .env.sample .env
+# then edit .env and set OPENAI_API_KEY
+```
 
-# Windows PowerShell
-$env:OPENAI_API_KEY='your_api_key_here'
+4. Build embeddings for the local docs corpus
+
+```bash
 npm run build-embeddings
 ```
 
@@ -47,12 +48,12 @@ npm start
 # runs the frontend on http://localhost:4200 and proxies /api to the backend
 ```
 
-```bash
-npm start
-# runs the frontend on http://localhost:4200 and proxies /api to the backend
-```
+6. Open the app at `http://localhost:4200` and go to the Chat page.
 
-5. Open the app at `http://localhost:4200` and go to the Chat page.
+Environment configuration:
+- Copy `.env.sample` to `.env` and set `OPENAI_API_KEY` there.
+- `.env` is ignored by git, so your secret key is not committed.
+- If you prefer, you can also set `OPENAI_API_KEY` directly in your shell before running the backend or embeddings build.
 
 Notes about the dev proxy and API:
 - The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:5173` during development.

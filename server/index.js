@@ -1,8 +1,11 @@
 const path = require('path');
 const fs = require('fs').promises;
+const dotenv = require('dotenv');
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { OpenAI } = require('openai');
+
+dotenv.config();
 
 const app = Fastify({ logger: true });
 const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');

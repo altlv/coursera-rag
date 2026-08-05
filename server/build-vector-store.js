@@ -1,6 +1,9 @@
+const dotenv = require('dotenv');
 const fs = require('fs').promises;
 const path = require('path');
 const { OpenAI } = require('openai');
+
+dotenv.config();
 
 const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');
 const EMBEDDINGS_FILE = path.join(DOCS_ROOT, 'embeddings.json');
