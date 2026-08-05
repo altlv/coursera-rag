@@ -25,7 +25,13 @@
       <div *ngIf="message.sources?.length" class="message-sources">
         <strong>Sources:</strong>
         <span *ngFor="let source of message.sources; let last = last">
-          {{ source }}<span *ngIf="!last"> · </span>
+          <a
+            class="source-link"
+            [href]="source.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            >{{ source.title }}</a
+          ><span *ngIf="!last"> · </span>
         </span>
       </div>
     </div>

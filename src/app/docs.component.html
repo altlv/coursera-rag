@@ -1,0 +1,45 @@
+<section class="docs-page">
+  <div class="docs-sidebar">
+    <div class="docs-sidebar-header">
+      <h2>Local Angular Docs</h2>
+      <p>Browse the downloaded docs corpus.</p>
+    </div>
+
+    <nav class="docs-tree">
+      <ng-container *ngIf="structure(); else loadingStructure">
+        <ul>
+          <ng-container *ngFor="let node of structure()">
+            <li>
+              <a [routerLink]="['/docs']" [queryParams]="{ path: node.path }">{{ node.title }}</a>
+              <ul *ngIf="node.children?.length">
+                <ng-container *ngFor="let child of node.children">
+                  <li>
+                    <a [routerLink]="['/docs']" [queryParams]="{ path: child.path }">{{ child.title }}</a>
+                  </li>
+                </ng-container>
+              </ul>
+            </li>
+          </ng-container>
+        </ul>
+      </ng-container>
+      <ng-template #loadingStructure>
+        <p>Loading docs structure…</p>
+      </ng-template>
+    </nav>
+  </div>
+
+  <div class="docs-content">
+    <div *ngIf="loading()" class="docs-loading">Loading page…</div>
+    <div *ngIf="error()" class="docs-error">{{ error() }}</div>
+    <div *ngIf="page()" class="docs-article">
+      <h1>{{ page()?.title }}</h1>
+      <div [innerHTML]="pageContent()"></div>
+      <div class="docs-footer">
+        <a [href]="page()?.url" target="_blank" rel="noopener noreferrer">View original Angular docs page</a>
+      </div>
+    </div>
+    <div *ngIf="!loading() && !page() && !error()" class="docs-empty">
+      <p>Select a doc page from the left to open it.</p>
+    </div>
+  </div>
+</section>

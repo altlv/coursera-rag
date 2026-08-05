@@ -185,6 +185,24 @@ app.register(cors, {
   origin: ['http://localhost:4200'],
 });
 
+app.get('/api/docs/page', async (request, reply) => {
+  const pagePath = request.query.path;
+  if (!pagePath || typeof pagePath !== 'string') {
+    reply.status(400);
+    return { error: 'path query parameter is required' };
+  }
+
+  const pages = await loadDocsPages();
+  const normalizedPath = pagePath.startsWith('/') ? pagePath : `/${pagePath}`;
+  const page = pages.get(normalizedPath);
+  if (!page) {
+    reply.status(404);
+    return { error: 'Doc page not found' };
+  }
+
+  return page;
+});
+
 app.get('/api/docs/structure', async () => {
   return await loadDocsStructure();
 });
@@ -225,7 +243,12 @@ app.post('/api/chat', async (request, reply) => {
     question,
     mode,
     answer,
-    sources: results.map((result) => ({ title: result.title, path: result.path, url: result.url })),
+    sources: results.map((result) => ({
+      title: result.title,
+      path: result.path,
+      url: `/docs?path=${encodeURIComponent(result.path)}`,
+      originalUrl: result.url,
+    })),
     retrieved: results.map((result) => ({ title: result.title, path: result.path, snippet: result.snippet || result.text || '' })),
   };
 });

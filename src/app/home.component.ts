@@ -43,6 +43,31 @@ export class HomeComponent {
       status: 'done',
     },
     {
+      title: 'Add local Angular docs user guide section',
+      detail: 'Create a third website section alongside Overview and Chat to browse the locally downloaded Angular documentation.',
+      status: 'not started',
+    },
+    {
+      title: 'Implement docs page viewer',
+      detail: 'Render downloaded Angular doc pages and HTML content in a dedicated frontend viewer.',
+      status: 'not started',
+    },
+    {
+      title: 'Add backend docs API for the site',
+      detail: 'Expose local docs page content and structure through backend endpoints for the frontend viewer.',
+      status: 'not started',
+    },
+    {
+      title: 'Link chat sources to docs browser',
+      detail: 'Make chat citations open the local docs viewer instead of only showing text paths.',
+      status: 'not started',
+    },
+    {
+      title: 'Display retrieved snippets with citations',
+      detail: 'Show selected doc snippets and source references in chat responses for clearer retrieval context.',
+      status: 'not started',
+    },
+    {
       title: 'Implement basic retrieval search (lexical)',
       detail: 'Simple lexical search over normalized text to return relevant pages and snippets.',
       status: 'done',

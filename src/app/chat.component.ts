@@ -3,10 +3,12 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ChatService } from './chat.service';
 
+import type { ChatSource } from './chat.service';
+
 interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
-  sources?: string[];
+  sources?: Array<Pick<ChatSource, 'title' | 'url'>>;
 }
 
 @Component({
@@ -45,7 +47,10 @@ export class ChatComponent {
       const assistantMessage: ChatMessage = {
         role: 'assistant',
         text: response.answer,
-        sources: response.sources.map((source) => `${source.title} (${source.path})`),
+        sources: response.sources.map((source) => ({
+          title: source.title,
+          url: source.url || source.path,
+        })),
       };
       this.messages.update((list) => [...list, assistantMessage]);
     } catch (error) {
