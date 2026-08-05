@@ -105,15 +105,24 @@ async function buildEmbeddings() {
   console.log(`Building embeddings for ${chunks.length} chunks...`);
 
   const inputs = chunks.map((chunk) => chunk.text);
-  const batchSize = 50;
+  const batchSize = 10;
   const vectorChunks = [];
 
   for (let start = 0; start < inputs.length; start += batchSize) {
-    const batch = inputs.slice(start, start + batchSize);
-    const response = await client.embeddings.create({
-      model: 'text-embedding-3-small',
-      input: batch,
-    });
+      const batch = inputs.slice(start, start + batchSize).map((s) => {
+        // Safety: truncate any input that is unexpectedly large to avoid API token limits.
+        const MAX_INPUT_CHARS = 6000; // conservative char-based cap
+        if (s.length > MAX_INPUT_CHARS) {
+          return s.slice(0, MAX_INPUT_CHARS);
+        }
+        return s;
+      });
+
+      // Use smaller batches to reduce chance of hitting request limits
+      const response = await client.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: batch,
+      });
 
     if (!response.data || !Array.isArray(response.data)) {
       throw new Error('OpenAI returned an invalid embeddings response.');

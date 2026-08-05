@@ -7,6 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "test:unit": "vitest run --reporter dot"
     "download-docs": "node ./scripts/fetch-angular-docs.js",
     "build-embeddings": "node ./server/build-vector-store.js",
     "start-backend": "node ./server/index.js"
