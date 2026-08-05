@@ -1,0 +1,48 @@
+<section class="chat-hero">
+  <div>
+    <p class="eyebrow">Chat</p>
+    <h1>Angular Docs Assistant</h1>
+    <p>
+      Chat is here to assist you on the topic of “How to Angular”. Ask away and I
+      will try to answer!
+    </p>
+    <p>
+      The RAG backend will connect the chat to Angular documentation and retrieve
+      relevant excerpts to improve answer accuracy.
+    </p>
+  </div>
+</section>
+
+<section class="chat-panel">
+  <div class="message-list">
+    <div
+      class="message"
+      *ngFor="let message of messages()"
+      [ngClass]="{ assistant: message.role === 'assistant', user: message.role === 'user' }"
+    >
+      <div class="message-label">{{ message.role === 'user' ? 'You' : 'Assistant' }}</div>
+      <p>{{ message.text }}</p>
+      <div *ngIf="message.sources?.length" class="message-sources">
+        <strong>Sources:</strong>
+        <span *ngFor="let source of message.sources; let last = last">
+          {{ source }}<span *ngIf="!last"> · </span>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <form class="compose-form" (ngSubmit)="sendQuestion()">
+    <label for="question">Ask about Angular docs</label>
+    <textarea
+      id="question"
+      name="question"
+      [(ngModel)]="question"
+      rows="4"
+      placeholder="e.g. What is a standalone component?"
+      [disabled]="isLoading()"
+    ></textarea>
+    <button type="submit" class="primary-button" [disabled]="isLoading()">
+      {{ isLoading() ? 'Searching docs...' : 'Send question' }}
+    </button>
+  </form>
+</section>

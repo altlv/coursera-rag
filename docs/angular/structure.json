@@ -1,0 +1,217 @@
+{
+  "title": "Angular Docs",
+  "path": "/overview",
+  "children": [
+    {
+      "title": "Introduction",
+      "children": [
+        {
+          "title": "What is Angular?",
+          "path": "/overview"
+        },
+        {
+          "title": "Installation",
+          "path": "/installation"
+        },
+        {
+          "title": "Essentials",
+          "children": []
+        },
+        {
+          "title": "Start coding! 🚀",
+          "path": "/tutorials/learn-angular"
+        }
+      ]
+    },
+    {
+      "title": "In-depth Guides",
+      "children": [
+        {
+          "title": "Signals Updated",
+          "children": []
+        },
+        {
+          "title": "Components",
+          "children": []
+        },
+        {
+          "title": "Templates",
+          "children": []
+        },
+        {
+          "title": "Directives",
+          "children": []
+        },
+        {
+          "title": "Dependency Injection Updated",
+          "children": []
+        },
+        {
+          "title": "Routing",
+          "children": []
+        },
+        {
+          "title": "Forms Updated",
+          "children": []
+        },
+        {
+          "title": "HTTP Client",
+          "children": []
+        },
+        {
+          "title": "Server-side & hybrid-rendering",
+          "children": []
+        },
+        {
+          "title": "Testing",
+          "children": []
+        },
+        {
+          "title": "Angular Aria New",
+          "children": []
+        },
+        {
+          "title": "Internationalization",
+          "children": []
+        },
+        {
+          "title": "Animations",
+          "children": []
+        },
+        {
+          "title": "Drag and drop",
+          "path": "/guide/drag-drop"
+        }
+      ]
+    },
+    {
+      "title": "Build with AI",
+      "children": [
+        {
+          "title": "Get Started",
+          "path": "/ai"
+        },
+        {
+          "title": "LLM prompts and AI IDE setup",
+          "path": "/ai/develop-with-ai"
+        },
+        {
+          "title": "Agent Skills New",
+          "path": "/ai/agent-skills"
+        },
+        {
+          "title": "Angular CLI MCP Server setup",
+          "path": "/ai/mcp"
+        },
+        {
+          "title": "Angular AI Tutor",
+          "path": "/ai/ai-tutor"
+        },
+        {
+          "title": "Design Patterns",
+          "path": "/ai/design-patterns"
+        },
+        {
+          "title": "WebMCP New",
+          "path": "/ai/webmcp"
+        }
+      ]
+    },
+    {
+      "title": "Developer Tools",
+      "children": [
+        {
+          "title": "Angular CLI",
+          "children": []
+        },
+        {
+          "title": "Libraries",
+          "children": []
+        },
+        {
+          "title": "DevTools",
+          "children": []
+        },
+        {
+          "title": "Language Service",
+          "path": "/tools/language-service"
+        }
+      ]
+    },
+    {
+      "title": "Best Practices",
+      "children": [
+        {
+          "title": "Style Guide",
+          "path": "/style-guide"
+        },
+        {
+          "title": "Security",
+          "path": "/best-practices/security"
+        },
+        {
+          "title": "Accessibility",
+          "path": "/best-practices/a11y"
+        },
+        {
+          "title": "Unhandled errors in Angular",
+          "path": "/best-practices/error-handling"
+        },
+        {
+          "title": "Performance",
+          "children": []
+        },
+        {
+          "title": "Keeping up-to-date",
+          "path": "/update"
+        }
+      ]
+    },
+    {
+      "title": "Developer Events",
+      "children": [
+        {
+          "title": "Angular v22 Release New",
+          "path": "/events/v22"
+        },
+        {
+          "title": "Angular v21 Release",
+          "path": "/events/v21"
+        }
+      ]
+    },
+    {
+      "title": "Extended Ecosystem",
+      "children": [
+        {
+          "title": "NgModules",
+          "path": "/guide/ngmodules/overview"
+        },
+        {
+          "title": "Legacy Animations",
+          "children": []
+        },
+        {
+          "title": "Using RxJS with Angular",
+          "children": []
+        },
+        {
+          "title": "Service Workers & PWAs",
+          "children": []
+        },
+        {
+          "title": "Web workers",
+          "path": "/ecosystem/web-workers"
+        },
+        {
+          "title": "Custom build pipeline",
+          "path": "/ecosystem/custom-build-pipeline"
+        },
+        {
+          "title": "Tailwind",
+          "path": "/guide/tailwind"
+        }
+      ]
+    }
+  ]
+}

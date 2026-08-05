@@ -1,0 +1,97 @@
+﻿:host {
+  display: block;
+  min-height: 100vh;
+  background: #f8fbff;
+  color: #0f172a;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:host::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at top left, rgba(46, 114, 255, 0.12), transparent 24%),
+    radial-gradient(circle at bottom right, rgba(34, 197, 94, 0.12), transparent 24%);
+  pointer-events: none;
+}
+
+.app-shell {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 0;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.brand-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.logo {
+  width: 3rem;
+  height: 3rem;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: #eff6ff;
+  font-size: 1.5rem;
+}
+
+.brand-subtitle {
+  margin: 0.25rem 0 0;
+  color: #475569;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.app-nav a {
+  color: #0f172a;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.app-nav a:hover,
+.app-nav a:focus-visible {
+  background: rgba(46, 114, 255, 0.08);
+  border-color: rgba(46, 114, 255, 0.24);
+}
+
+.app-main {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 0 1.5rem 2rem;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding-top: 1rem;
+  }
+
+  .app-nav {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .app-nav a {
+    flex: 1;
+    text-align: center;
+  }
+}

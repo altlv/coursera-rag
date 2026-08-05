@@ -1,0 +1,55 @@
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">Hello world!</p>
+    <h1>Trial 1 - simple chatbot</h1>
+    <p class="hero-intro">
+      I am building an Angular documentation assistant with RAG.
+    </p>
+    <p>
+      This project is an Angular wiki assistant that will answer questions by
+      retrieving relevant Angular documentation and using a retrieval-augmented
+      generation workflow.
+    </p>
+  </div>
+</section>
+
+<div class="hero-actions">
+  <a class="primary-button" routerLink="/chat">Open the chatbot</a>
+</div>
+
+<section class="progress-card">
+  <div class="progress-header">
+    <div>
+      <p class="eyebrow">Project progress</p>
+      <h3>Current plan</h3>
+    </div>
+    <p class="progress-summary">Tap a status pill to move a task forward.</p>
+  </div>
+
+  <div class="task-list">
+    <article class="task-card" *ngFor="let task of tasks">
+      <div>
+        <h4>{{ task.title }}</h4>
+        <p>{{ task.detail }}</p>
+      </div>
+      <button
+        class="status-pill"
+        [ngClass]="task.status.replace(' ', '-')"
+        (click)="cycleStatus(task)"
+        type="button"
+      >
+        {{ task.status }}
+      </button>
+    </article>
+  </div>
+</section>
+
+<section class="why-section">
+  <h3>Why Fastify?</h3>
+  <p>
+    Fastify is a lightweight, high-performance framework that is easy to manage
+    for a small backend API. It has a clean plugin system, good TypeScript
+    support, and it is a strong choice for building the retrieval service that
+    will power the Angular docs chatbot.
+  </p>
+</section>

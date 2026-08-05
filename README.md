@@ -1,59 +1,78 @@
-# CourseraRag
+# Angular Docs Wiki Chatbot (RAG prototype)
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.1.2.
+This repository contains a prototype Angular documentation assistant built with a Retrieval-Augmented Generation (RAG) approach.
 
-## Development server
+High-level components:
+- Frontend: Angular app (chat UI, progress logger)
+- Backend: Fastify server that serves a local copy of Angular docs and exposes a /api/chat endpoint
+- Docs corpus: Local download of selected Angular docs pages under `docs/angular/` (structure + per-page JSON)
 
-To start a local development server, run:
+Quick start (development):
 
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+1. Install dependencies
 
 ```bash
-ng generate component component-name
+npm install
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+2. Download Angular docs (creates `docs/angular/`)
 
 ```bash
-ng generate --help
+npm run download-docs
 ```
 
-## Building
-
-To build the project run:
+3. Start the backend server (Fastify)
 
 ```bash
-ng build
+npm run start-backend
+# runs the backend on http://localhost:5173
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+4. Start the Angular dev server (with a proxy to backend)
 
 ```bash
-ng test
+npm start
+# runs the frontend on http://localhost:4200 and proxies /api to the backend
 ```
 
-## Running end-to-end tests
+5. Open the app at `http://localhost:4200` and go to the Chat page.
 
-For end-to-end (e2e) testing, run:
+Notes about the dev proxy and API:
+- The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:5173` during development.
+- The ChatService in the frontend uses relative URLs (e.g. `/api/chat`).
+
+What is implemented (prototype v0.1):
+- Introduction/landing page with progress logger
+- Chat UI and local conversation state
+- Scripts to download Angular docs (sidebar crawler)
+- Fastify backend serving local docs and a simple lexical search endpoint `/api/chat`
+- Frontend service to call the backend and render answers + source links
+
+Planned next steps (RAG work):
+- Chunk docs and compute embeddings for each chunk
+- Store embeddings in a vector store (local FAISS, Pinecone, Supabase, Weaviate)
+- Replace lexical search with vector similarity search
+- Assemble prompts with retrieved chunks and call an LLM for final answers (with citations)
+- Add tests, CI, and deployment configuration
+
+Committing progress (recommended):
+- This repository was prepared as a working prototype. If you want to record progress in git:
 
 ```bash
-ng e2e
+# (only once)
+git init
+git add .
+git commit -m "v0.1-prototype: Angular docs RAG prototype\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+git tag v0.1-prototype
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+- After the initial commit, continue small, focused commits that describe progress (e.g., `docs: add downloaded Angular pages`, `feat: fastify backend and lexical search`).
 
-## Additional Resources
+Developer notes / troubleshooting:
+- If `/api/chat` returns 404 in the browser, ensure the backend is running (port 5173) and `npm start` was launched with the proxy config (the `start` script includes `--proxy-config proxy.conf.json`).
+- To debug backend locally, run `npm run start-backend` and test `POST http://localhost:5173/api/chat`.
 
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+Contact / authorship:
+- Prototype created with assistance from Copilot CLI runtime in VS Code.
+
+License: MIT (choose a license if you plan to publish)
