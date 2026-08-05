@@ -55,23 +55,36 @@ Environment configuration:
 - `.env` is ignored by git, so your secret key is not committed.
 - If you prefer, you can also set `OPENAI_API_KEY` directly in your shell before running the backend or embeddings build.
 
+Verifying the vector store:
+- Run `npm run build-embeddings` to build `docs/angular/embeddings.json` from the downloaded docs.
+- Run `npm run test:unit` to verify the vector store file exists and contains valid numeric embeddings.
+
 Notes about the dev proxy and API:
 - The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:5173` during development.
 - The ChatService in the frontend uses relative URLs (e.g. `/api/chat`).
 
 What is implemented (prototype v0.1):
-- Introduction/landing page with progress logger
-- Chat UI and local conversation state
-- Scripts to download Angular docs (sidebar crawler)
-- Fastify backend serving local docs and a simple lexical search endpoint `/api/chat`
-- Frontend service to call the backend and render answers + source links
-- Vector search scaffolding with a local embeddings builder and vector similarity fallback path
+- Introduction/landing page with a progress logger and navigation to the chatbot
+- Chat UI and local conversation state in Angular
+- Scripts to download Angular docs, scrape the docs sidebar, and save page JSON under `docs/angular/`
+- Fastify backend serving local docs, a `/api/chat` endpoint, and both lexical search and vector search fallback support
+- Local embeddings builder in `server/build-vector-store.js` with `.env`-based OpenAI configuration
+- A unit test that verifies `docs/angular/embeddings.json` exists and contains numeric vector embeddings
+- A developer-friendly README with setup, troubleshooting, and progress guidance
+
+Current status:
+- Angular docs corpus downloaded and stored locally under `docs/angular/`
+- Vector store generated locally in `docs/angular/embeddings.json` with 23 chunks using `text-embedding-3-small`
+- Backend supports vector retrieval fallback and lexical search when embeddings are not available
+- Embedding store validation test passes with `npm run test:unit`
+- OpenAI key configuration is handled via `.env` and `.env.sample`
+- The next major phase is prompt assembly and generating final answers from retrieved chunks
 
 Planned next steps (RAG work):
-- Run `npm run build-embeddings` with `OPENAI_API_KEY` to generate `docs/angular/embeddings.json`
-- Use retrieved chunks to build a prompt and call a completion model for final answers
-- Improve prompts to prefer exact doc citations and source references
-- Add tests, CI, and deployment configuration
+- Add prompt assembly for retrieved chunks and call an OpenAI completion model for final answers
+- Improve prompt engineering so answers cite exact Angular docs sources and snippets
+- Add broader tests and CI automation for backend, frontend, and vector workflows
+- Prepare deployment guidance for the frontend and backend
 
 Committing progress (recommended):
 - This repository was prepared as a working prototype. If you want to record progress in git:

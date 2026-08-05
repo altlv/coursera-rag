@@ -68,6 +68,11 @@ export class HomeComponent {
       status: 'done',
     },
     {
+      title: 'Validate the vector store with unit tests',
+      detail: 'Add a vitest unit test to confirm embeddings.json exists and contains numeric vector data.',
+      status: 'done',
+    },
+    {
       title: 'Integrate LLM prompt + RAG flow',
       detail: 'Assemble prompt with retrieved chunks and call an LLM for final answer (with citations).',
       status: 'not started',
