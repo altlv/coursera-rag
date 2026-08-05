@@ -2,13 +2,19 @@ const path = require('path');
 const fs = require('fs').promises;
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
+const { OpenAI } = require('openai');
 
 const app = Fastify({ logger: true });
 const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');
 const STRUCTURE_FILE = path.join(DOCS_ROOT, 'structure.json');
+const EMBEDDINGS_FILE = path.join(DOCS_ROOT, 'embeddings.json');
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
 
 let docsStructure = null;
 let docsPages = null;
+let vectorStore = null;
 
 function normalizeText(value) {
   return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -51,6 +57,63 @@ async function loadDocsPages() {
 
   await walkDir(DOCS_ROOT);
   return docsPages;
+}
+
+async function loadVectorStore() {
+  if (vectorStore) {
+    return vectorStore;
+  }
+
+  try {
+    const content = await fs.readFile(EMBEDDINGS_FILE, 'utf8');
+    vectorStore = JSON.parse(content);
+  } catch (error) {
+    vectorStore = null;
+  }
+  return vectorStore;
+}
+
+function cosineSimilarity(a, b) {
+  const dot = a.reduce((sum, value, index) => sum + value * b[index], 0);
+  const magA = Math.sqrt(a.reduce((sum, value) => sum + value * value, 0));
+  const magB = Math.sqrt(b.reduce((sum, value) => sum + value * value, 0));
+  if (magA === 0 || magB === 0) {
+    return 0;
+  }
+  return dot / (magA * magB);
+}
+
+async function embedText(text) {
+  if (!openai) {
+    throw new Error('OpenAI API key missing. Set OPENAI_API_KEY to use vector search.');
+  }
+
+  const response = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: text,
+  });
+
+  if (!response.data || !Array.isArray(response.data) || !response.data[0]?.embedding) {
+    throw new Error('Invalid embedding response from OpenAI.');
+  }
+
+  return response.data[0].embedding;
+}
+
+async function searchVectors(query, limit = 4) {
+  const store = await loadVectorStore();
+  if (!store || !store.chunks?.length) {
+    return [];
+  }
+
+  const queryEmbedding = await embedText(query);
+  const scores = store.chunks.map((chunk) => ({
+    ...chunk,
+    score: cosineSimilarity(queryEmbedding, chunk.embedding),
+  }));
+
+  scores.sort((a, b) => b.score - a.score);
+  return scores.slice(0, limit);
 }
 
 function buildSnippet(contentText, query) {
@@ -130,16 +193,37 @@ app.post('/api/chat', async (request, reply) => {
     return { error: 'question is required' };
   }
 
-  const results = await searchDocs(question, 4);
-  const answer = results.length
-    ? `I found ${results.length} relevant Angular docs pages. The most relevant page is "${results[0].title}".`
-    : 'I did not find a matching page in the local Angular docs corpus yet.';
+  let results = [];
+  let answer = '';
+  let mode = 'lexical';
+
+  try {
+    const store = await loadVectorStore();
+    if (store && openai) {
+      mode = 'vector';
+      results = await searchVectors(question, 4);
+      answer = results.length
+        ? `I found ${results.length} relevant Angular docs chunks using vector search. The most relevant chunk comes from "${results[0].title}".`
+        : 'I did not find a matching document chunk in the local Angular docs vector store yet.';
+    }
+  } catch (error) {
+    app.log.warn(`Vector search failed: ${error.message}`);
+  }
+
+  if (!results.length) {
+    mode = 'lexical';
+    results = await searchDocs(question, 4);
+    answer = results.length
+      ? `I found ${results.length} relevant Angular docs pages using lexical search. The most relevant page is "${results[0].title}".`
+      : 'I did not find a matching page in the local Angular docs corpus yet.';
+  }
 
   return {
     question,
+    mode,
     answer,
     sources: results.map((result) => ({ title: result.title, path: result.path, url: result.url })),
-    retrieved: results.map((result) => ({ title: result.title, path: result.path, snippet: result.snippet })),
+    retrieved: results.map((result) => ({ title: result.title, path: result.path, snippet: result.snippet || result.text || '' })),
   };
 });
 

@@ -8,6 +8,7 @@
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
     "download-docs": "node ./scripts/fetch-angular-docs.js",
+    "build-embeddings": "node ./server/build-vector-store.js",
     "start-backend": "node ./server/index.js"
   },
   "private": true,
@@ -19,8 +20,9 @@
     "@angular/forms": "^22.1.0",
     "@angular/platform-browser": "^22.1.0",
     "@angular/router": "^22.1.0",
-    "fastify": "^4.29.1",
     "@fastify/cors": "^9.0.0",
+    "fastify": "^4.29.1",
+    "openai": "^4.104.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

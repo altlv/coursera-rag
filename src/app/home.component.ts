@@ -59,8 +59,13 @@ export class HomeComponent {
     },
     {
       title: 'Build embeddings & vector store (RAG)',
-      detail: 'Chunk pages, compute embeddings, store in vector DB (Pinecone/Supabase/FAISS).',
-      status: 'not started',
+      detail: 'Add the embedding builder and local vector store support for retrieval-augmented answers.',
+      status: 'in progress',
+    },
+    {
+      title: 'Add backend vector retrieval support',
+      detail: 'Load embeddings and use vector similarity search with a fallback to lexical search when needed.',
+      status: 'done',
     },
     {
       title: 'Integrate LLM prompt + RAG flow',
@@ -85,12 +90,12 @@ export class HomeComponent {
     {
       title: 'Write comprehensive README and developer guide',
       detail: 'Document architecture, how to run the project, and next steps for RAG integration.',
-      status: 'in progress',
+      status: 'done',
     },
     {
       title: 'Commit progress and tag milestone',
       detail: 'Create a git repo (if not present), commit the current working state, and tag v0.1-prototype.',
-      status: 'not started',
+      status: 'done',
     },
   ];
 

@@ -21,14 +21,31 @@ npm install
 npm run download-docs
 ```
 
-3. Start the backend server (Fastify)
+3. Build embeddings for the local docs corpus
+
+```bash
+# Unix/macOS
+export OPENAI_API_KEY=your_api_key_here
+npm run build-embeddings
+
+# Windows PowerShell
+$env:OPENAI_API_KEY='your_api_key_here'
+npm run build-embeddings
+```
+
+4. Start the backend server (Fastify)
 
 ```bash
 npm run start-backend
 # runs the backend on http://localhost:5173
 ```
 
-4. Start the Angular dev server (with a proxy to backend)
+5. Start the Angular dev server (with a proxy to backend)
+
+```bash
+npm start
+# runs the frontend on http://localhost:4200 and proxies /api to the backend
+```
 
 ```bash
 npm start
@@ -47,12 +64,12 @@ What is implemented (prototype v0.1):
 - Scripts to download Angular docs (sidebar crawler)
 - Fastify backend serving local docs and a simple lexical search endpoint `/api/chat`
 - Frontend service to call the backend and render answers + source links
+- Vector search scaffolding with a local embeddings builder and vector similarity fallback path
 
 Planned next steps (RAG work):
-- Chunk docs and compute embeddings for each chunk
-- Store embeddings in a vector store (local FAISS, Pinecone, Supabase, Weaviate)
-- Replace lexical search with vector similarity search
-- Assemble prompts with retrieved chunks and call an LLM for final answers (with citations)
+- Run `npm run build-embeddings` with `OPENAI_API_KEY` to generate `docs/angular/embeddings.json`
+- Use retrieved chunks to build a prompt and call a completion model for final answers
+- Improve prompts to prefer exact doc citations and source references
 - Add tests, CI, and deployment configuration
 
 Committing progress (recommended):
@@ -69,8 +86,10 @@ git tag v0.1-prototype
 - After the initial commit, continue small, focused commits that describe progress (e.g., `docs: add downloaded Angular pages`, `feat: fastify backend and lexical search`).
 
 Developer notes / troubleshooting:
-- If `/api/chat` returns 404 in the browser, ensure the backend is running (port 5173) and `npm start` was launched with the proxy config (the `start` script includes `--proxy-config proxy.conf.json`).
-- To debug backend locally, run `npm run start-backend` and test `POST http://localhost:5173/api/chat`.
+- `/api/chat` should not return 404 when the backend is running and the frontend dev server is using the proxy. If you see `Cannot POST /api/chat`, verify:
+  - The backend is started with `npm run start-backend` and listening on `http://localhost:5173`
+  - The Angular app is started with `npm start` so `/api` requests are forwarded by `proxy.conf.json`
+- To debug backend locally, run `npm run start-backend` and test `POST http://localhost:5173/api/chat` directly.
 
 Contact / authorship:
 - Prototype created with assistance from Copilot CLI runtime in VS Code.
