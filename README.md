@@ -102,8 +102,10 @@ git tag v0.1-prototype
 Developer notes / troubleshooting:
 - `/api/chat` should not return 404 when the backend is running and the frontend dev server is using the proxy. If you see `Cannot POST /api/chat`, verify:
   - The backend is started with `npm run start-backend` and listening on `http://localhost:5173`
-  - The Angular app is started with `npm start` so `/api` requests are forwarded by `proxy.conf.json`
+  - The Angular app is started with `npm start` or `npx ng serve`, and the proxy config is loaded from `angular.json` / `proxy.conf.json`
+  - The frontend request is sent to `/api/chat`, not directly to the Angular app build output.
 - To debug backend locally, run `npm run start-backend` and test `POST http://localhost:5173/api/chat` directly.
+- The proxy is now configured in `angular.json`, so `ng serve` will automatically use `proxy.conf.json` when run from the project root.
 
 Contact / authorship:
 - Prototype created with assistance from Copilot CLI runtime in VS Code.
