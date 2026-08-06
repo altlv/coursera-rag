@@ -276,6 +276,17 @@
   color: var(--color-text-eyebrow);
 }
 
+/* Partial answers: these pages did NOT answer the question, so they are styled
+   as a suggestion rather than as authoritative citations. */
+.bubble-sources.closest {
+  border-top-style: solid;
+  border-top-color: var(--color-status-active);
+}
+
+.bubble-sources.closest .bubble-sources-label {
+  color: var(--color-status-active);
+}
+
 .source-row {
   display: flex;
   align-items: baseline;

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { buildPrompt, extractCitations, generateAnswer, REFUSAL } from '../../server/rag.js';
+import {
+  buildPrompt,
+  extractCitations,
+  generateAnswer,
+  REFUSAL,
+  PARTIAL_ANSWER,
+  NO_ANSWER_SENTINEL,
+} from '../../server/rag.js';
 
 /*
  * Generation is the stochastic half of RAG, so these tests never assert on
@@ -45,6 +52,14 @@ describe('buildPrompt', () => {
     expect(system).toMatch(/ONLY using the numbered context/i);
     expect(system).toMatch(/cite/i);
   });
+
+  it('tells the model how to signal that the passages do not answer the question', () => {
+    const { system } = buildPrompt('q', CHUNKS);
+    expect(system).toContain(NO_ANSWER_SENTINEL);
+    // Must be explicit that a merely-related passage is not good enough,
+    // otherwise the model pads an answer out of adjacent material.
+    expect(system).toMatch(/related topic/i);
+  });
 });
 
 describe('extractCitations', () => {
@@ -60,10 +75,10 @@ describe('extractCitations', () => {
 describe('generateAnswer', () => {
   it('refuses WITHOUT calling the model when nothing was retrieved', async () => {
     const llm = fakeLlm('should never be used');
-    const result = await generateAnswer({ question: 'how do I bake bread?', chunks: [], llm });
+    const result = await generateAnswer({ question: 'Got milk?', chunks: [], llm });
 
+    expect(result.status).toBe('refused');
     expect(result.answer).toBe(REFUSAL);
-    expect(result.refused).toBe(true);
     // The important assertion: no chunks means no API call, so an off-topic
     // question is free and cannot be answered from the model's own memory.
     expect(result.llmCalled).toBe(false);
@@ -74,9 +89,42 @@ describe('generateAnswer', () => {
     const llm = fakeLlm('A signal is a reactive value wrapper [1].');
     const result = await generateAnswer({ question: 'what is a signal?', chunks: CHUNKS, llm });
 
+    expect(result.status).toBe('answered');
     expect(result.answer).toBe('A signal is a reactive value wrapper [1].');
     expect(result.citations).toEqual([1]);
+  });
+
+  it('reports "partial" when passages were found but none answer the question', async () => {
+    /*
+     * The "What does CSS stand for?" case. Retrieval cannot catch this on score
+     * alone - those passages score 0.457, higher than several genuine Angular
+     * questions, because the styling and security pages really are about CSS.
+     * What is missing is a definition of the acronym. Only the model, reading the
+     * passages, can tell - so it signals with the sentinel and we offer the
+     * closest pages instead of an answer.
+     */
+    const llm = fakeLlm(NO_ANSWER_SENTINEL);
+    const result = await generateAnswer({
+      question: 'What does CSS stand for?',
+      chunks: CHUNKS,
+      llm,
+    });
+
+    expect(result.status).toBe('partial');
+    expect(result.answer).toBe(PARTIAL_ANSWER);
+    expect(result.citations).toEqual([]);
+    // Distinct from 'refused': there ARE sources worth showing here.
     expect(result.refused).toBe(false);
+    expect(result.llmCalled).toBe(true);
+  });
+
+  it('treats the sentinel as partial even with surrounding whitespace', async () => {
+    const result = await generateAnswer({
+      question: 'q',
+      chunks: CHUNKS,
+      llm: fakeLlm(`  ${NO_ANSWER_SENTINEL}\n`),
+    });
+    expect(result.status).toBe('partial');
   });
 
   it('passes both the system and user prompt to the model', async () => {
@@ -107,10 +155,10 @@ describe('generateAnswer', () => {
     expect(result.droppedCitations).toEqual([]);
   });
 
-  it('falls back to the refusal when the model returns nothing', async () => {
+  it('treats empty model output as partial rather than showing a blank answer', async () => {
     const result = await generateAnswer({ question: 'q', chunks: CHUNKS, llm: fakeLlm('   ') });
-    expect(result.answer).toBe(REFUSAL);
-    expect(result.refused).toBe(true);
+    expect(result.status).toBe('partial');
+    expect(result.answer).toBe(PARTIAL_ANSWER);
   });
 
   it('propagates model errors rather than inventing an answer', async () => {

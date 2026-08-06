@@ -12,6 +12,8 @@
     "build-embeddings": "node ./server/build-vector-store.js",
     "docs:check": "node ./scripts/update-docs.js --check",
     "docs:update": "node ./scripts/update-docs.js",
+    "build-golden": "node ./scripts/build-golden-fixture.js",
+    "test:retrieval": "vitest run test/retrieval.test.mjs",
     "start-backend": "node ./server/index.js"
   },
   "private": true,

@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { ChatService } from './chat.service';
+import { ChatService, type ChatStatus } from './chat.service';
 
 export interface ChatMessageSource {
   title: string;
@@ -13,6 +13,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   text: string;
   sources?: ChatMessageSource[];
+  /** See ChatStatus: shapes how sources are labelled. */
+  status?: ChatStatus;
   isError?: boolean;
 }
 
@@ -80,6 +82,7 @@ export class ChatStore {
         {
           role: 'assistant',
           text: response.answer,
+          status: response.status ?? 'answered',
           sources: response.sources.map((source) => ({
             title: source.title,
             path: source.path,

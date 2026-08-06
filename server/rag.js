@@ -191,17 +191,33 @@ function selectChunks(queryVector, store, { k = 5, floor = 0.25 } = {}) {
 // Stage 5: generation
 // ---------------------------------------------------------------------------
 
+/*
+ * Sentinel the model emits when the retrieved passages don't answer the question.
+ *
+ * An explicit signal beats inferring it. The alternative - "the answer cited
+ * nothing, so it must have failed" - is a heuristic that breaks the moment a
+ * model answers correctly without citing, and it cannot distinguish "not in
+ * these docs" from "answered from general knowledge".
+ */
+const NO_ANSWER_SENTINEL = 'NO_ANSWER_IN_DOCS';
+
 const SYSTEM_PROMPT = `You are an assistant that answers questions about the Angular web framework.
 
 Rules:
 - Answer ONLY using the numbered context passages provided. They are excerpts from the official Angular documentation.
 - Cite the passages you used with bracketed numbers, e.g. [1] or [2][3]. Cite only numbers that appear in the context.
-- If the context does not contain the answer, say so plainly and do not guess. Never invent APIs, options or version numbers.
+- Never invent APIs, options or version numbers.
 - Prefer short, concrete explanations. Include a small code example when the context contains one.
-- Do not mention "context", "passages" or "documents" in your answer. Just answer the question.`;
+- Do not mention "context", "passages" or "documents" in your answer. Just answer the question.
+- If the passages do NOT contain the information needed to answer, reply with exactly ${NO_ANSWER_SENTINEL} and nothing else. Do not apologise, explain, or answer from your own knowledge. This applies even when the passages are on a related topic.`;
 
+/** Nothing cleared the similarity floor: there is nothing to show. */
 const REFUSAL =
   "I could not find anything about that in the Angular documentation I have indexed. Try rephrasing, or ask about a topic covered by the local docs corpus.";
+
+/** Passages were found, but none of them answer the question. */
+const PARTIAL_ANSWER =
+  "I could not find an answer to that in the Angular documentation I have indexed. These pages came closest - they may be near what you are looking for:";
 
 /**
  * Assemble the model input from a question plus retrieved chunks.
@@ -235,25 +251,53 @@ function extractCitations(answer) {
  * `llm` is injected rather than imported so tests can pass a fake. It is any
  * object with `complete({ system, user }) -> Promise<string>`.
  *
- * Two guards worth understanding:
- *  - No chunks means we return the refusal WITHOUT calling the model. Cheaper,
- *    deterministic, and it removes the temptation for the model to answer from
- *    its own memory rather than from the docs.
+ * Returns one of three statuses, because "did we find anything" and "does what
+ * we found answer the question" are genuinely different outcomes:
+ *
+ *   'answered' - the passages covered it. Real answer, with citations.
+ *   'partial'  - passages cleared the similarity floor but none answer the
+ *                question. Say so, and offer them as the closest thing found.
+ *   'refused'  - nothing cleared the floor. There is nothing to offer.
+ *
+ * Why 'partial' has to exist: retrieval cannot detect this case on score alone.
+ * "What does CSS stand for?" scores 0.457 against the styling and security
+ * pages - higher than several genuine Angular questions - because those pages
+ * really are about CSS. Retrieval is behaving correctly; what's missing is a
+ * definition of the acronym, which is a fact about the world rather than about
+ * Angular. Only the model, looking at the passages, can tell.
+ *
+ * Two further guards:
+ *  - No chunks means the refusal is returned WITHOUT calling the model. Cheaper,
+ *    deterministic, and it removes any chance of answering from the model's own
+ *    memory rather than from the docs.
  *  - Citations pointing outside the supplied range are stripped. A model citing
- *    [7] when it was given 4 passages is hallucinating a source, and an
- *    unchecked citation is worse than none because it looks verified.
+ *    [7] when given 4 passages is inventing a source, and an unchecked citation
+ *    is worse than none because it looks verified.
  */
 async function generateAnswer({ question, chunks, llm }) {
   if (!chunks || chunks.length === 0) {
-    return { answer: REFUSAL, citations: [], refused: true, llmCalled: false };
+    return {
+      status: 'refused',
+      answer: REFUSAL,
+      citations: [],
+      refused: true,
+      llmCalled: false,
+    };
   }
 
   const prompt = buildPrompt(question, chunks);
   const raw = await llm.complete(prompt);
   const text = (raw || '').trim();
 
-  if (!text) {
-    return { answer: REFUSAL, citations: [], refused: true, llmCalled: true };
+  // Empty output is treated as "could not answer" rather than shown as a blank.
+  if (!text || text.includes(NO_ANSWER_SENTINEL)) {
+    return {
+      status: 'partial',
+      answer: PARTIAL_ANSWER,
+      citations: [],
+      refused: false,
+      llmCalled: true,
+    };
   }
 
   const cited = extractCitations(text);
@@ -261,12 +305,12 @@ async function generateAnswer({ question, chunks, llm }) {
   const invalid = cited.filter((n) => !valid.includes(n));
 
   // Remove citations that don't correspond to a supplied passage.
-  const answer = invalid.reduce(
-    (acc, n) => acc.replaceAll(`[${n}]`, ''),
-    text,
-  ).replace(/[ \t]{2,}/g, ' ');
+  const answer = invalid
+    .reduce((acc, n) => acc.replaceAll(`[${n}]`, ''), text)
+    .replace(/[ \t]{2,}/g, ' ');
 
   return {
+    status: 'answered',
     answer: answer.trim(),
     citations: valid,
     droppedCitations: invalid,
@@ -311,4 +355,6 @@ module.exports = {
   createOpenAiLlm,
   SYSTEM_PROMPT,
   REFUSAL,
+  PARTIAL_ANSWER,
+  NO_ANSWER_SENTINEL,
 };

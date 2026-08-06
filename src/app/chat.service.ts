@@ -21,11 +21,22 @@ export interface ChatRetrieved {
   score?: number;
 }
 
+/**
+ * How well the docs covered the question.
+ *
+ *  answered - the passages covered it; the answer is grounded and cited.
+ *  partial  - passages were found but none answer it. `sources` are offered as
+ *             the closest thing rather than as citations.
+ *  refused  - nothing cleared the similarity floor; there is nothing to show.
+ */
+export type ChatStatus = 'answered' | 'partial' | 'refused';
+
 export interface ChatResponse {
   question: string;
   answer: string;
   sources: ChatSource[];
   retrieved: ChatRetrieved[];
+  status?: ChatStatus;
   /** Which retrieval path produced this answer. The server always sends it. */
   mode?: 'vector' | 'lexical';
 }

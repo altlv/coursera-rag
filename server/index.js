@@ -292,8 +292,10 @@ app.post('/api/chat', async (request, reply) => {
   let answer;
   let citations = [];
   let usage;
+  let status;
 
   if (!openai) {
+    status = results.length > 0 ? 'partial' : 'refused';
     answer =
       results.length > 0
         ? 'OPENAI_API_KEY is not set, so I can only list the documentation pages that look relevant - I cannot write an answer yet. Set the key in .env and restart the backend.'
@@ -307,6 +309,7 @@ app.post('/api/chat', async (request, reply) => {
         chunks: results.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
         llm,
       });
+      status = generated.status;
       answer = generated.answer;
       citations = generated.citations;
       usage = llm.lastUsage;
@@ -321,19 +324,30 @@ app.post('/api/chat', async (request, reply) => {
     }
   }
 
+  /*
+   * On 'refused' there is nothing worth showing, so sources are omitted. On
+   * 'partial' the sources ARE the useful part of the response - the answer text
+   * says as much - so they are still returned.
+   */
+  const sources =
+    status === 'refused'
+      ? []
+      : results.map((result) => ({
+          title: result.title,
+          path: result.path,
+          url: `/docs?path=${encodeURIComponent(result.path)}`,
+          originalUrl: result.url,
+        }));
+
   return {
     question,
     mode,
+    status,
     model: openai ? CHAT_MODEL : null,
     answer,
     citations,
     usage,
-    sources: results.map((result) => ({
-      title: result.title,
-      path: result.path,
-      url: `/docs?path=${encodeURIComponent(result.path)}`,
-      originalUrl: result.url,
-    })),
+    sources,
     retrieved: results.map((result) => ({
       title: result.title,
       path: result.path,

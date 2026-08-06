@@ -41,8 +41,12 @@
           <p class="bubble-text">{{ message.text }}</p>
 
           @if (message.sources?.length) {
-            <div class="bubble-sources">
-              <p class="bubble-sources-label">Sources</p>
+            <div class="bubble-sources" [class.closest]="message.status === 'partial'">
+              <!-- On a partial answer these are NOT citations - nothing in them
+                   answered the question - so they must not be labelled as such. -->
+              <p class="bubble-sources-label">
+                {{ message.status === 'partial' ? 'Closest pages found' : 'Sources' }}
+              </p>
               @for (source of message.sources; track source.path) {
                 <div class="source-row">
                   <!-- routerLink so the MAIN pane navigates while this rail,
