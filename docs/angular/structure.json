@@ -1,156 +1,537 @@
 {
   "title": "Angular Docs",
-  "path": "/overview",
   "children": [
     {
-      "title": "Introduction",
+      "title": "Getting started",
       "children": [
         {
-          "title": "What is Angular?",
-          "path": "/overview"
+          "title": "Essentials",
+          "path": "/essentials"
+        },
+        {
+          "title": "Components",
+          "path": "/essentials/components"
+        },
+        {
+          "title": "Dependency Injection",
+          "path": "/essentials/dependency-injection"
+        },
+        {
+          "title": "Next Steps",
+          "path": "/essentials/next-steps"
+        },
+        {
+          "title": "Forms with signals",
+          "path": "/essentials/signal-forms"
+        },
+        {
+          "title": "Signals",
+          "path": "/essentials/signals"
+        },
+        {
+          "title": "Templates",
+          "path": "/essentials/templates"
         },
         {
           "title": "Installation",
           "path": "/installation"
         },
         {
-          "title": "Essentials",
-          "children": []
-        },
-        {
-          "title": "Start coding! 🚀",
-          "path": "/tutorials/learn-angular"
+          "title": "What is Angular?",
+          "path": "/overview"
         }
       ]
     },
     {
-      "title": "In-depth Guides",
+      "title": "Signals",
       "children": [
         {
-          "title": "Signals Updated",
-          "children": []
+          "title": "Angular Signals",
+          "path": "/guide/signals"
         },
         {
-          "title": "Components",
-          "children": []
+          "title": "Debouncing signals with debounced",
+          "path": "/guide/signals/debounced"
         },
         {
-          "title": "Templates",
-          "children": []
+          "title": "Side effects for non-reactives APIs • Angular",
+          "path": "/guide/signals/effect"
         },
+        {
+          "title": "Redirecting",
+          "path": "/guide/signals/inputs"
+        },
+        {
+          "title": "Dependent state with linkedSignal",
+          "path": "/guide/signals/linked-signal"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/signals/model"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/signals/queries"
+        },
+        {
+          "title": "Async reactivity with resources",
+          "path": "/guide/signals/resource"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/signals/rxjs-interop"
+        }
+      ]
+    },
+    {
+      "title": "Components",
+      "children": [
+        {
+          "title": "Anatomy of a component",
+          "path": "/guide/components"
+        },
+        {
+          "title": "Advanced component configuration",
+          "path": "/guide/components/advanced-configuration"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/components/anatomy-of-components"
+        },
+        {
+          "title": "Content projection with ng-content",
+          "path": "/guide/components/content-projection"
+        },
+        {
+          "title": "Using DOM APIs",
+          "path": "/guide/components/dom-apis"
+        },
+        {
+          "title": "Component host elements",
+          "path": "/guide/components/host-elements"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/components/importing"
+        },
+        {
+          "title": "Inheritance",
+          "path": "/guide/components/inheritance"
+        },
+        {
+          "title": "Accepting data with input properties",
+          "path": "/guide/components/inputs"
+        },
+        {
+          "title": "Component Lifecycle",
+          "path": "/guide/components/lifecycle"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/components/output-function"
+        },
+        {
+          "title": "Custom events with outputs",
+          "path": "/guide/components/outputs"
+        },
+        {
+          "title": "Programmatically rendering components",
+          "path": "/guide/components/programmatic-rendering"
+        },
+        {
+          "title": "Referencing component children with queries",
+          "path": "/guide/components/queries"
+        },
+        {
+          "title": "Component selectors",
+          "path": "/guide/components/selectors"
+        },
+        {
+          "title": "Styling components",
+          "path": "/guide/components/styling"
+        }
+      ]
+    },
+    {
+      "title": "Templates",
+      "children": [
+        {
+          "title": "Template syntax",
+          "path": "/guide/templates"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/attribute-binding"
+        },
+        {
+          "title": "Binding dynamic text, properties and attributes",
+          "path": "/guide/templates/binding"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/class-binding"
+        },
+        {
+          "title": "Control flow",
+          "path": "/guide/templates/control-flow"
+        },
+        {
+          "title": "Deferred loading with @defer",
+          "path": "/guide/templates/defer"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/event-binding"
+        },
+        {
+          "title": "Adding event listeners",
+          "path": "/guide/templates/event-listeners"
+        },
+        {
+          "title": "Expression Syntax",
+          "path": "/guide/templates/expression-syntax"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/interpolation"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/let-template-variables"
+        },
+        {
+          "title": "Grouping elements with ng-container",
+          "path": "/guide/templates/ng-container"
+        },
+        {
+          "title": "Render templates from a parent component with ng-content",
+          "path": "/guide/templates/ng-content"
+        },
+        {
+          "title": "Create template fragments with ng-template",
+          "path": "/guide/templates/ng-template"
+        },
+        {
+          "title": "Pipes",
+          "path": "/guide/templates/pipes"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/property-binding"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/property-binding-best-practices"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/reference-variables"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/svg-in-templates"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/templates/template-statements"
+        },
+        {
+          "title": "Two-way binding",
+          "path": "/guide/templates/two-way-binding"
+        },
+        {
+          "title": "Variables in templates",
+          "path": "/guide/templates/variables"
+        },
+        {
+          "title": "Whitespace in templates",
+          "path": "/guide/templates/whitespace"
+        }
+      ]
+    },
+    {
+      "title": "Directives",
+      "children": [
         {
           "title": "Directives",
-          "children": []
+          "path": "/guide/directives"
         },
         {
-          "title": "Dependency Injection Updated",
-          "children": []
+          "title": "Attribute directives",
+          "path": "/guide/directives/attribute-directives"
         },
         {
-          "title": "Routing",
-          "children": []
+          "title": "Directive composition API",
+          "path": "/guide/directives/directive-composition-api"
         },
         {
-          "title": "Forms Updated",
-          "children": []
-        },
-        {
-          "title": "HTTP Client",
-          "children": []
-        },
-        {
-          "title": "Server-side & hybrid-rendering",
-          "children": []
-        },
-        {
-          "title": "Testing",
-          "children": []
-        },
-        {
-          "title": "Angular Aria New",
-          "children": []
-        },
-        {
-          "title": "Internationalization",
-          "children": []
-        },
-        {
-          "title": "Animations",
-          "children": []
-        },
-        {
-          "title": "Drag and drop",
-          "path": "/guide/drag-drop"
+          "title": "Structural directives",
+          "path": "/guide/directives/structural-directives"
         }
       ]
     },
     {
-      "title": "Build with AI",
+      "title": "Dependency injection",
       "children": [
         {
-          "title": "Get Started",
-          "path": "/ai"
+          "title": "Dependency injection in Angular",
+          "path": "/guide/di"
         },
         {
-          "title": "LLM prompts and AI IDE setup",
-          "path": "/ai/develop-with-ai"
+          "title": "Creating and using services",
+          "path": "/guide/di/creating-and-using-services"
         },
         {
-          "title": "Agent Skills New",
-          "path": "/ai/agent-skills"
+          "title": "Redirecting",
+          "path": "/guide/di/creating-injectable-service"
         },
         {
-          "title": "Angular CLI MCP Server setup",
-          "path": "/ai/mcp"
+          "title": "Debugging and troubleshooting dependency injection",
+          "path": "/guide/di/debugging-and-troubleshooting-di"
         },
         {
-          "title": "Angular AI Tutor",
-          "path": "/ai/ai-tutor"
+          "title": "Defining dependency providers",
+          "path": "/guide/di/defining-dependency-providers"
         },
         {
-          "title": "Design Patterns",
-          "path": "/ai/design-patterns"
+          "title": "Redirecting",
+          "path": "/guide/di/dependency-injection"
         },
         {
-          "title": "WebMCP New",
-          "path": "/ai/webmcp"
+          "title": "Injection context",
+          "path": "/guide/di/dependency-injection-context"
+        },
+        {
+          "title": "Redirecting",
+          "path": "/guide/di/dependency-injection-providers"
+        },
+        {
+          "title": "DI in action",
+          "path": "/guide/di/di-in-action"
+        },
+        {
+          "title": "Hierarchical injectors",
+          "path": "/guide/di/hierarchical-dependency-injection"
+        },
+        {
+          "title": "Lazy loading services",
+          "path": "/guide/di/lazy-loading-services"
+        },
+        {
+          "title": "Optimizing client application size with lightweight injection tokens",
+          "path": "/guide/di/lightweight-injection-tokens"
         }
       ]
     },
     {
-      "title": "Developer Tools",
+      "title": "Forms",
       "children": [
         {
-          "title": "Angular CLI",
-          "children": []
+          "title": "Forms in Angular",
+          "path": "/guide/forms"
         },
         {
-          "title": "Libraries",
-          "children": []
+          "title": "Building dynamic forms",
+          "path": "/guide/forms/dynamic-forms"
         },
         {
-          "title": "DevTools",
-          "children": []
+          "title": "Validating form input",
+          "path": "/guide/forms/form-validation"
         },
         {
-          "title": "Language Service",
-          "path": "/tools/language-service"
+          "title": "Reactive forms",
+          "path": "/guide/forms/reactive-forms"
+        },
+        {
+          "title": "Async operations",
+          "path": "/guide/forms/signals/async-operations"
+        },
+        {
+          "title": "Comparison with other form approaches",
+          "path": "/guide/forms/signals/comparison"
+        },
+        {
+          "title": "Cross-field logic",
+          "path": "/guide/forms/signals/cross-field-logic"
+        },
+        {
+          "title": "Custom Controls",
+          "path": "/guide/forms/signals/custom-controls"
+        },
+        {
+          "title": "Dynamic Forms with JSON",
+          "path": "/guide/forms/signals/dynamic-forms-with-json"
+        },
+        {
+          "title": "Field metadata",
+          "path": "/guide/forms/signals/field-metadata"
+        },
+        {
+          "title": "Field state management",
+          "path": "/guide/forms/signals/field-state-management"
+        },
+        {
+          "title": "Adding form logic",
+          "path": "/guide/forms/signals/form-logic"
+        },
+        {
+          "title": "Form submission",
+          "path": "/guide/forms/signals/form-submission"
+        },
+        {
+          "title": "Migrating existing forms to Signal Forms",
+          "path": "/guide/forms/signals/migration"
+        },
+        {
+          "title": "Designing your form model",
+          "path": "/guide/forms/signals/model-design"
+        },
+        {
+          "title": "Form models",
+          "path": "/guide/forms/signals/models"
+        },
+        {
+          "title": "Forms with Angular Signals",
+          "path": "/guide/forms/signals/overview"
+        },
+        {
+          "title": "Schemas and schema composability",
+          "path": "/guide/forms/signals/schemas"
+        },
+        {
+          "title": "Testing Signal Forms",
+          "path": "/guide/forms/signals/testing"
+        },
+        {
+          "title": "Validation",
+          "path": "/guide/forms/signals/validation"
+        },
+        {
+          "title": "Building a template-driven form",
+          "path": "/guide/forms/template-driven-forms"
+        },
+        {
+          "title": "Typed Forms",
+          "path": "/guide/forms/typed-forms"
         }
       ]
     },
     {
-      "title": "Best Practices",
+      "title": "Routing",
       "children": [
         {
-          "title": "Style Guide",
-          "path": "/style-guide"
+          "title": "Angular Routing",
+          "path": "/guide/routing"
         },
         {
-          "title": "Security",
-          "path": "/best-practices/security"
+          "title": "Other common Routing Tasks",
+          "path": "/guide/routing/common-router-tasks"
         },
         {
-          "title": "Accessibility",
+          "title": "Customizing route behavior",
+          "path": "/guide/routing/customizing-route-behavior"
+        },
+        {
+          "title": "Data resolvers",
+          "path": "/guide/routing/data-resolvers"
+        },
+        {
+          "title": "Define routes",
+          "path": "/guide/routing/define-routes"
+        },
+        {
+          "title": "Router Lifecycle and Events",
+          "path": "/guide/routing/lifecycle-and-events"
+        },
+        {
+          "title": "Route Loading Strategies",
+          "path": "/guide/routing/loading-strategies"
+        },
+        {
+          "title": "Navigate to routes",
+          "path": "/guide/routing/navigate-to-routes"
+        },
+        {
+          "title": "Read route state",
+          "path": "/guide/routing/read-route-state"
+        },
+        {
+          "title": "Redirecting Routes",
+          "path": "/guide/routing/redirecting-routes"
+        },
+        {
+          "title": "Rendering strategies in Angular",
+          "path": "/guide/routing/rendering-strategies"
+        },
+        {
+          "title": "Control route access with guards",
+          "path": "/guide/routing/route-guards"
+        },
+        {
+          "title": "Route transition animations",
+          "path": "/guide/routing/route-transition-animations"
+        },
+        {
+          "title": "Router reference",
+          "path": "/guide/routing/router-reference"
+        },
+        {
+          "title": "Creating custom route matches",
+          "path": "/guide/routing/routing-with-urlmatcher"
+        },
+        {
+          "title": "Show routes with outlets",
+          "path": "/guide/routing/show-routes-with-outlets"
+        },
+        {
+          "title": "Testing routing and navigation",
+          "path": "/guide/routing/testing"
+        }
+      ]
+    },
+    {
+      "title": "HTTP client",
+      "children": [
+        {
+          "title": "Understanding communication with backend services using HTTP",
+          "path": "/guide/http"
+        },
+        {
+          "title": "Reactive data fetching with httpResource",
+          "path": "/guide/http/http-resource"
+        },
+        {
+          "title": "Interceptors",
+          "path": "/guide/http/interceptors"
+        },
+        {
+          "title": "Making HTTP requests",
+          "path": "/guide/http/making-requests"
+        },
+        {
+          "title": "Setting up HttpClient",
+          "path": "/guide/http/setup"
+        },
+        {
+          "title": "Test requests",
+          "path": "/guide/http/testing"
+        }
+      ]
+    },
+    {
+      "title": "Pipes",
+      "children": [
+        {
+          "title": "Redirecting",
+          "path": "/guide/pipes"
+        }
+      ]
+    },
+    {
+      "title": "Best practices",
+      "children": [
+        {
+          "title": "Accessibility in Angular",
           "path": "/best-practices/a11y"
         },
         {
@@ -159,57 +540,60 @@
         },
         {
           "title": "Performance",
-          "children": []
+          "path": "/best-practices/performance"
         },
         {
-          "title": "Keeping up-to-date",
-          "path": "/update"
+          "title": "Deferred loading with @defer",
+          "path": "/best-practices/performance/defer"
+        },
+        {
+          "title": "Getting started with NgOptimizedImage",
+          "path": "/best-practices/performance/image-optimization"
+        },
+        {
+          "title": "Route Loading Strategies",
+          "path": "/best-practices/performance/lazy-loaded-routes"
+        },
+        {
+          "title": "Lazy loading services",
+          "path": "/best-practices/performance/lazy-loading-services"
+        },
+        {
+          "title": "Server and hybrid rendering",
+          "path": "/best-practices/performance/ssr"
+        },
+        {
+          "title": "Profiling with the Chrome DevTools",
+          "path": "/best-practices/profiling-with-chrome-devtools"
+        },
+        {
+          "title": "Runtime performance optimization",
+          "path": "/best-practices/runtime-performance"
+        },
+        {
+          "title": "Security",
+          "path": "/best-practices/security"
+        },
+        {
+          "title": "Skipping component subtrees",
+          "path": "/best-practices/skipping-subtrees"
+        },
+        {
+          "title": "Slow computations",
+          "path": "/best-practices/slow-computations"
+        },
+        {
+          "title": "Resolving zone pollution",
+          "path": "/best-practices/zone-pollution"
         }
       ]
     },
     {
-      "title": "Developer Events",
+      "title": "Style guide",
       "children": [
         {
-          "title": "Angular v22 Release New",
-          "path": "/events/v22"
-        },
-        {
-          "title": "Angular v21 Release",
-          "path": "/events/v21"
-        }
-      ]
-    },
-    {
-      "title": "Extended Ecosystem",
-      "children": [
-        {
-          "title": "NgModules",
-          "path": "/guide/ngmodules/overview"
-        },
-        {
-          "title": "Legacy Animations",
-          "children": []
-        },
-        {
-          "title": "Using RxJS with Angular",
-          "children": []
-        },
-        {
-          "title": "Service Workers & PWAs",
-          "children": []
-        },
-        {
-          "title": "Web workers",
-          "path": "/ecosystem/web-workers"
-        },
-        {
-          "title": "Custom build pipeline",
-          "path": "/ecosystem/custom-build-pipeline"
-        },
-        {
-          "title": "Tailwind",
-          "path": "/guide/tailwind"
+          "title": "Angular coding style guide",
+          "path": "/style-guide"
         }
       ]
     }
