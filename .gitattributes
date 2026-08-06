@@ -1,0 +1,32 @@
+# Line endings.
+#
+# Git for Windows sets core.autocrlf=true in its SYSTEM config, so without this
+# file the line endings you get depend on how each contributor installed Git.
+# That is what produced the "LF will be replaced by CRLF" warnings, and why this
+# working tree ended up mixed: app.ts was LF while README.md was CRLF.
+#
+# `text=auto` lets Git detect text files and store them with LF in the
+# repository. `eol=lf` additionally checks them out as LF, which overrides
+# core.autocrlf so the result is identical on every machine.
+* text=auto eol=lf
+
+# Windows shell scripts genuinely need CRLF to run.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files: never touch the bytes, and don't try to diff them as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+
+# The generated vector store is raw Float32 data. It is gitignored, but declare
+# it so it can never be corrupted by newline translation if that ever changes.
+*.bin binary
