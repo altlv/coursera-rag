@@ -138,16 +138,58 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Refuse when nothing matches',
         detail:
-          'A score floor means an off-topic question returns an honest "not in these docs" without calling the model at all.',
+          'A score floor means an off-topic question returns an honest "not in these docs" without calling the model at all - so the refusal is free and cannot be a guess.',
         status: 'done',
         where: 'server/rag.js selectChunks()',
       },
       {
+        title: 'Partial answers',
+        detail:
+          'A third outcome between answering and refusing. When passages clear the floor but none answer the question, the model signals it and we offer the closest pages instead of an answer. Retrieval cannot detect this on score alone - "What does CSS stand for?" scores 0.457 because the styling pages really are about CSS; what is missing is the acronym.',
+        status: 'done',
+        where: 'server/rag.js generateAnswer()',
+      },
+      {
+        title: 'Answer confidence',
+        detail:
+          'high/medium/low from a composite of the model verdict, citation coverage, score gap and page corroboration - never from similarity alone, which would rate an unanswerable question as highly as a real one. Known limitation: it leans on the model verdict, so it is comparable within a provider but not across providers.',
+        status: 'done',
+        where: 'server/rag.js assessConfidence()',
+      },
+      {
+        title: 'Switch which model answers',
+        detail:
+          'CHAT_PROVIDER selects openai, gemini, openrouter, xai, groq or a local Ollama. All speak the OpenAI protocol, so one SDK serves them all. Generation is switchable; embeddings are not, because the store fixes the embedding space.',
+        status: 'done',
+        where: 'server/llm-providers.js',
+      },
+      {
+        title: 'Handle providers that cannot answer',
+        detail:
+          'A key can be present and unusable: xAI returned 403 "no credits or licenses yet", Gemini 429 on a fresh key. Failures are classified permanent or transient - only permanent ones remove a provider from the switcher, and unknown failures fail open.',
+        status: 'done',
+        where: 'server/provider-health.js',
+      },
+      {
         title: 'Golden-set retrieval tests',
         detail:
-          'Assert that real questions land on the right guide pages, measured as hit@3 and MRR. Question vectors get cached to a fixture so the suite runs free and offline. This is also the instrument for tuning k, chunk size and the score floor.',
-        status: 'todo',
-        where: 'test/retrieval.test.mjs',
+          'Fifteen questions covering match, no-match and adjacent-but-unanswered outcomes, measured as hit@3 and MRR. Question vectors are cached to a fixture, so the suite is free, offline and CI-safe. Currently hit@3 13/13 with MRR 1.000. It also disproved its own premise: the "adjacent" case was meant to score low enough to be distinguishable, but "What does CSS stand for?" scores 0.457 - above several real questions - so no threshold can separate them.',
+        status: 'done',
+        where: 'test/retrieval.test.mjs, test/golden-set.mjs',
+      },
+      {
+        title: 'Hybrid retrieval and diversity cap',
+        detail:
+          'BM25 keyword ranking fused with vector similarity by Reciprocal Rank Fusion, plus a limit of 2 passages per page. Fixed the one golden-set miss - "how do I pass data into a component?" ranked /guide/components/inputs 5th because the question says "pass data" and the page says "input" - and took hit@3 from 92% to 100%.',
+        status: 'done',
+        where: 'server/rag.js selectChunksHybrid()',
+      },
+      {
+        title: 'Drop redirect shells from the corpus',
+        detail:
+          '21 of 135 allowlisted URLs now serve only a client-side redirect, 24-83 characters long. They filled the sidebar with entries titled "Redirecting" and the vector store with near-empty passages. Skipped, with chain resolution and a warning when a target falls outside the allowlist.',
+        status: 'done',
+        where: 'scripts/docs-source.js isRedirectStub()',
       },
     ],
   },
@@ -170,11 +212,31 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'src/app/chat-panel.component.html',
       },
       {
+        title: 'Show how each answer was built',
+        detail:
+          'Every answer carries the model that wrote it, a confidence badge, and a collapsible panel listing each passage with its similarity score, the rank each retrieval method gave it, and the prompt token count. All of it was already in the API response and was being discarded.',
+        status: 'done',
+        where: 'src/app/chat-panel.component.html',
+      },
+      {
+        title: 'Working memory: chain follow-up questions',
+        detail:
+          'Today every question is embedded alone, so "what about effects?" has almost nothing retrievable in it and matches near-randomly. The fix is query rewriting - one cheap model call turns the follow-up into a standalone question using the history - plus passing the history into the answer prompt so pronouns resolve. Concatenating the history instead would dilute the embedding across several topics.',
+        status: 'todo',
+        where: 'server/rag.js, chat.store.ts',
+      },
+      {
         title: 'Documentation index',
         detail:
           'A browsable list of every indexed page with its real angular.dev URL, so it is clear what the assistant can and cannot answer from.',
         status: 'todo',
         where: 'GET /api/docs/list',
+      },
+      {
+        title: 'Feedback loop',
+        detail:
+          'Thumbs up/down per answer, logged with the retrieved passages, so failures become golden-set cases. The golden set is currently 15 questions someone guessed; real logs would show what people actually ask, including the phrasings that fail.',
+        status: 'todo',
       },
       {
         title: 'Fix dead links in the docs sidebar',

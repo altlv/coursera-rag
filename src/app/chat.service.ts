@@ -59,26 +59,96 @@ export interface ChatResponse {
   retrieved: ChatRetrieved[];
   status?: ChatStatus;
   confidence?: ChatConfidence;
+  /** Which model wrote this answer. */
+  model?: string | null;
+  provider?: string | null;
+  providerLabel?: string | null;
   /** Which retrieval path produced this answer. The server always sends it. */
   mode?: 'vector' | 'lexical';
   /** Token counts for the generation call, when one was made. */
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
 }
 
+/** Structured error body sent by /api/chat when generation fails. */
+export interface ChatErrorPayload {
+  error: string;
+  provider?: string;
+  errorKind?: string;
+  permanent?: boolean;
+  detail?: string;
+}
+
+/** Error thrown by ask(), carrying enough context for the UI to advise a fix. */
+export interface ChatError extends Error {
+  provider?: string;
+  errorKind?: string;
+  permanent?: boolean;
+}
+
+export interface ProviderOption {
+  name: string;
+  label: string;
+  model: string;
+  /** ok | degraded | unknown for offerable providers; unavailable ones are split out. */
+  status?: 'ok' | 'degraded' | 'unknown' | 'unavailable';
+  /** Why it is unusable or degraded, safe to show a user. */
+  hint?: string;
+  kind?: string;
+}
+
+export interface ProviderInfo {
+  /** Providers worth offering. Permanently failed ones are excluded. */
+  available: ProviderOption[];
+  /** Configured but unusable, e.g. no credits or a revoked key. */
+  unavailable: ProviderOption[];
+  active: string | null;
+  reason: string;
+  embeddings: { provider: string; model: string; switchable: boolean; note: string };
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatService {
-  async ask(question: string): Promise<ChatResponse> {
+  /** Which providers have keys configured. Names only - never key values. */
+  async providers(): Promise<ProviderInfo> {
+    const response = await fetch('/api/providers');
+    if (!response.ok) throw new Error(`Failed to load providers: ${response.status}`);
+    return await response.json();
+  }
+
+  async ask(question: string, provider?: string): Promise<ChatResponse> {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ question }),
+      // `provider` is optional; omitting it uses the server's CHAT_PROVIDER.
+      body: JSON.stringify(provider ? { question, provider } : { question }),
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`Chat request failed: ${response.status} ${response.statusText} - ${errorBody}`);
+      /*
+       * The server sends a structured error: a human-readable `error` plus
+       * `provider`, `errorKind` and `permanent`. Surface the readable part and
+       * attach the rest, instead of dumping the raw JSON body into a chat bubble.
+       */
+      let payload: Partial<ChatErrorPayload> | null = null;
+      try {
+        payload = await response.json();
+      } catch {
+        // Not JSON - e.g. a proxy error page. Fall through to a generic message.
+      }
+
+      const error = new Error(
+        payload?.error ||
+          (response.status === 502
+            ? 'The model provider could not be reached.'
+            : `Request failed (${response.status} ${response.statusText}).`),
+      ) as ChatError;
+
+      error.provider = payload?.provider;
+      error.errorKind = payload?.errorKind;
+      error.permanent = payload?.permanent;
+      throw error;
     }
 
     return await response.json();

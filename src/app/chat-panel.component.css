@@ -144,6 +144,34 @@
   flex: none;
 }
 
+/* Which model writes the answers. Retrieval is unaffected by this choice. */
+.provider-select {
+  max-width: 8.5rem;
+  padding: 0.25rem var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.provider-select:hover,
+.provider-select:focus-visible {
+  border-color: var(--color-brand-ring);
+  color: var(--color-brand-strong);
+}
+
+/* Hover-only indicator for configured-but-unusable providers. */
+.provider-issue {
+  flex: none;
+  font-size: 0.8rem;
+  color: var(--color-status-active);
+  cursor: help;
+  line-height: 1;
+}
+
 .rail-icon-button {
   border: 1px solid transparent;
   background: transparent;
@@ -213,6 +241,19 @@
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--color-text-eyebrow);
+}
+
+/* Which model wrote this answer. Hover for the exact model id. */
+.bubble-model {
+  margin-left: var(--space-2);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text-subtle);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  cursor: help;
 }
 
 /* Confidence badge. Composite signal, not the similarity score. */
@@ -478,6 +519,7 @@
 .composer {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-3);
   border-top: 1px solid var(--color-border);

@@ -18,6 +18,34 @@
         </div>
       </div>
       <div class="rail-actions">
+        @if (store.canSwitchProvider()) {
+          <!--
+            Only providers the server considers usable appear here. One that has
+            permanently failed (no credits, revoked key) is filtered out server-side
+            rather than offered and then erroring.
+          -->
+          <select
+            class="provider-select"
+            [value]="store.selectedProvider() ?? ''"
+            (change)="onProviderChange($event)"
+            title="Which model writes the answers. Retrieval is unaffected."
+          >
+            <option value="">Default ({{ store.activeProvider() }})</option>
+            @for (provider of store.providers(); track provider.name) {
+              <option [value]="provider.name">
+                {{ provider.label }}{{ provider.status === 'degraded' ? ' (rate limited)' : '' }}
+              </option>
+            }
+          </select>
+          @if (store.unavailableProviders().length) {
+            <!--
+              Configured but unusable, e.g. out of credits. Kept as a hover-only
+              indicator rather than a banner: the information matters once, while a
+              permanent notice would occupy the composer on every single render.
+            -->
+            <span class="provider-issue" [title]="unavailableSummary()">&#9888;</span>
+          }
+        }
         @if (store.hasConversation()) {
           <button class="rail-icon-button" type="button" (click)="store.reset()" title="Clear conversation">
             Clear
@@ -38,7 +66,14 @@
           [class.error]="message.isError"
         >
           <p class="bubble-role">
-            <span>{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
+            <span>
+              {{ message.role === 'user' ? 'You' : 'Assistant' }}
+              @if (message.providerLabel) {
+                <!-- Per message, because the provider can change mid-conversation
+                     and it matters which model said what. -->
+                <span class="bubble-model" [title]="message.model">{{ message.providerLabel }}</span>
+              }
+            </span>
             @if (message.confidence && message.confidence.level !== 'none') {
               <!-- Composite, NOT the similarity score - see assessConfidence().
                    Hover for the reasons behind the verdict. -->

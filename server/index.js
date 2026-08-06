@@ -9,9 +9,10 @@ const {
   selectChunksHybrid,
   assessConfidence,
   generateAnswer,
-  createOpenAiLlm,
   REFUSAL,
 } = require('./rag');
+const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
+const { createHealthTracker } = require('./provider-health');
 
 dotenv.config();
 
@@ -25,7 +26,12 @@ const SCORE_FLOOR = 0.25;
  * duplicates, and adjacent chunks overlap by 150 characters anyway.
  */
 const MAX_PER_PAGE = 2;
-const CHAT_MODEL = 'gpt-4o-mini';
+/*
+ * Which model writes the answers is resolved per request from CHAT_PROVIDER, so
+ * switching providers needs only a restart - not a code change and not a rebuild
+ * of the vector store. See server/llm-providers.js for why embeddings are the
+ * opposite: a rebuild rather than a switch.
+ */
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 const app = Fastify({ logger: true });
@@ -33,13 +39,74 @@ const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');
 const STRUCTURE_FILE = path.join(DOCS_ROOT, 'structure.json');
 const CHUNKS_FILE = path.join(DOCS_ROOT, 'chunks.json');
 const VECTORS_FILE = path.join(DOCS_ROOT, 'vectors.bin');
+/** Rewritten by every scrape, so its mtime signals a corpus change. */
+const MANIFEST_FILE = path.join(DOCS_ROOT, 'manifest.json');
 
+/*
+ * Embeddings are pinned to OpenAI, deliberately and independently of
+ * CHAT_PROVIDER. The vector store was built in text-embedding-3-small's
+ * 512-dimension space; embedding a QUERY with a different provider would compare
+ * two unrelated spaces and return confident nonsense.
+ */
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+const embeddingClient = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+
+/** Which provider will answer, given the keys actually present. */
+const chatProvider = resolveProvider(undefined, process.env);
+
+/*
+ * Liveness, tracked separately from "has a key".
+ *
+ * A key can be present and still unusable - xAI returned 403 "no credits or
+ * licenses yet", Gemini returned 429 on a fresh free-tier key. Permanent failures
+ * stop a provider being offered; transient ones only mark it degraded.
+ */
+const health = createHealthTracker();
 
 let docsStructure = null;
 let docsPages = null;
 let vectorStore = null;
+
+/*
+ * Caches are invalidated when the corpus changes on disk.
+ *
+ * Without this, `npm run download-docs` or `docs:update` appears to do nothing:
+ * the pages and vectors are rewritten, but a running server keeps serving what it
+ * loaded at boot. That cost real confusion - a fixed duplicate-heading bug looked
+ * unfixed because the old HTML was still cached in memory.
+ *
+ * Every scrape rewrites manifest.json, so its mtime is a reliable change signal.
+ * Stat calls are cheap, but not free, so the check is throttled.
+ */
+let lastCorpusCheck = 0;
+let lastCorpusStamp = null;
+const CORPUS_CHECK_INTERVAL_MS = 2_000;
+
+async function invalidateIfCorpusChanged() {
+  const now = Date.now();
+  if (now - lastCorpusCheck < CORPUS_CHECK_INTERVAL_MS) return;
+  lastCorpusCheck = now;
+
+  try {
+    const stat = await fs.stat(MANIFEST_FILE);
+    const stamp = `${stat.mtimeMs}`;
+
+    if (lastCorpusStamp === null) {
+      lastCorpusStamp = stamp;
+      return;
+    }
+
+    if (stamp !== lastCorpusStamp) {
+      lastCorpusStamp = stamp;
+      docsStructure = null;
+      docsPages = null;
+      vectorStore = null;
+      app.log.info('Corpus changed on disk - caches cleared, reloading on next request.');
+    }
+  } catch {
+    // No manifest (e.g. a corpus built before manifests existed). Nothing to do.
+  }
+}
 
 /*
  * Lowercased, whitespace-flattened text for the LEXICAL fallback only.
@@ -55,6 +122,7 @@ function normalizeForLexical(value) {
 }
 
 async function loadDocsStructure() {
+  await invalidateIfCorpusChanged();
   if (!docsStructure) {
     const content = await fs.readFile(STRUCTURE_FILE, 'utf8');
     docsStructure = JSON.parse(content);
@@ -63,6 +131,7 @@ async function loadDocsStructure() {
 }
 
 async function loadDocsPages() {
+  await invalidateIfCorpusChanged();
   if (docsPages) {
     return docsPages;
   }
@@ -115,6 +184,7 @@ async function loadDocsPages() {
  * selectChunks() use a plain dot product instead of a full cosine similarity.
  */
 async function loadVectorStore() {
+  await invalidateIfCorpusChanged();
   if (vectorStore !== null) {
     return vectorStore;
   }
@@ -152,14 +222,29 @@ async function loadVectorStore() {
   return vectorStore;
 }
 
-/** Embed a search query and unit-normalise it, ready for a dot product. */
+/**
+ * Embed a search query and unit-normalise it, ready for a dot product.
+ *
+ * Always OpenAI, whatever CHAT_PROVIDER says: the query vector has to live in the
+ * same space as the stored passage vectors.
+ */
 async function embedQuery(text) {
-  if (!openai) {
-    throw new Error('OpenAI API key missing. Set OPENAI_API_KEY to use vector search.');
+  if (!embeddingClient) {
+    throw new Error('OPENAI_API_KEY missing. It is required for vector search regardless of CHAT_PROVIDER.');
   }
 
-  const response = await openai.embeddings.create({
-    model: EMBEDDING_MODEL,
+  /*
+   * Read the model and dimensions from the STORE, not from a local constant.
+   *
+   * These used to be declared here as well as in build-vector-store.js. Two
+   * copies of the same fact is how the chunking bug survived: change one and the
+   * query gets embedded by a different model than the passages, which returns
+   * plausible numbers and no error at all.
+   */
+  const store = await loadVectorStore();
+  const response = await embeddingClient.embeddings.create({
+    model: store?.model || EMBEDDING_MODEL,
+    dimensions: store?.dimensions,
     input: text,
   });
 
@@ -281,6 +366,51 @@ app.get('/api/docs/structure', async () => {
   return await loadDocsStructure();
 });
 
+/**
+ * Which providers are usable right now, so the UI can offer a switch and the
+ * comparison script can skip what isn't configured. Reports names only - never
+ * key values.
+ */
+app.get('/api/providers', async () => {
+  const configured = listAvailable();
+
+  const all = configured.map((name) => {
+    const llm = createLlm({ provider: name });
+    const state = health.get(name);
+    return {
+      name,
+      label: llm.providerLabel,
+      model: llm.model,
+      status: state.status,
+      /** Why it is unusable, when it is. Safe to show a user. */
+      hint: state.hint,
+      kind: state.kind,
+    };
+  });
+
+  return {
+    /*
+     * Only offerable providers. A provider that has permanently failed - no
+     * credits, revoked key, nonexistent model - is reported separately rather
+     * than presented as a working choice.
+     */
+    available: all.filter((p) => p.status !== 'unavailable'),
+    unavailable: all.filter((p) => p.status === 'unavailable'),
+    active: chatProvider.name,
+    reason: chatProvider.reason,
+    /*
+     * Embeddings are pinned separately: the vector store fixes the embedding
+     * space, so this is not switchable at runtime.
+     */
+    embeddings: {
+      provider: 'openai',
+      model: vectorStore?.model ?? 'text-embedding-3-small',
+      switchable: false,
+      note: 'Changing this requires npm run build-embeddings and npm run build-golden',
+    },
+  };
+});
+
 app.post('/api/chat', async (request, reply) => {
   const { question } = request.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
@@ -293,7 +423,7 @@ app.post('/api/chat', async (request, reply) => {
   let mode = 'lexical';
 
   try {
-    if (openai && (await loadVectorStore())) {
+    if (embeddingClient && (await loadVectorStore())) {
       results = await searchVectors(question, TOP_K);
       mode = 'vector';
     }
@@ -307,21 +437,27 @@ app.post('/api/chat', async (request, reply) => {
   }
 
   // ---- Stage 5: generate -------------------------------------------------
-  // Without a key we cannot write an answer, so be explicit rather than
-  // pretending. Retrieval results are still returned so the UI stays useful.
+  // Without any provider key we cannot write an answer, so say so plainly rather
+  // than pretending. Retrieval results are still returned so the UI stays useful.
   let answer;
   let citations = [];
   let usage;
   let status;
+  let llmInfo = null;
 
-  if (!openai) {
+  // A per-request override, so providers can be compared without a restart:
+  //   curl ... -d '{"question":"...","provider":"gemini"}'
+  const requestedProvider = typeof request.body?.provider === 'string' ? request.body.provider : undefined;
+
+  if (!chatProvider.name) {
     status = results.length > 0 ? 'partial' : 'refused';
     answer =
       results.length > 0
-        ? 'OPENAI_API_KEY is not set, so I can only list the documentation pages that look relevant - I cannot write an answer yet. Set the key in .env and restart the backend.'
+        ? 'No model provider key is set, so I can only list the documentation pages that look relevant - I cannot write an answer yet. Set OPENAI_API_KEY or GEMINI_API_KEY in .env and restart the backend.'
         : REFUSAL;
   } else {
-    const llm = createOpenAiLlm(openai, { model: CHAT_MODEL });
+    const llm = createLlm({ provider: requestedProvider });
+    llmInfo = { provider: llm.provider, providerLabel: llm.providerLabel, model: llm.model };
     try {
       const generated = await generateAnswer({
         question,
@@ -333,14 +469,30 @@ app.post('/api/chat', async (request, reply) => {
       answer = generated.answer;
       citations = generated.citations;
       usage = llm.lastUsage;
+      health.markOk(llm.provider);
 
       if (generated.droppedCitations?.length) {
         app.log.warn(`Dropped hallucinated citations: ${generated.droppedCitations.join(', ')}`);
       }
     } catch (error) {
-      app.log.error(`Generation failed: ${error.message}`);
+      /*
+       * Record WHY it failed so the provider can be demoted appropriately: a
+       * permanent failure (no credits, bad key) removes it from the offered list,
+       * while a rate limit only marks it degraded.
+       */
+      const classified = health.markFailed(llm.provider, error);
+      app.log.error(
+        `Generation failed on ${llm.provider} [${classified.kind}]: ${error.message}`,
+      );
+
       reply.status(502);
-      return { error: `Could not generate an answer: ${error.message}` };
+      return {
+        error: `${llm.providerLabel} could not answer: ${classified.hint}`,
+        provider: llm.provider,
+        errorKind: classified.kind,
+        permanent: classified.permanent,
+        detail: error.message,
+      };
     }
   }
 
@@ -363,7 +515,9 @@ app.post('/api/chat', async (request, reply) => {
     question,
     mode,
     status,
-    model: openai ? CHAT_MODEL : null,
+    model: llmInfo?.model ?? null,
+    provider: llmInfo?.provider ?? null,
+    providerLabel: llmInfo?.providerLabel ?? null,
     answer,
     citations,
     usage,
@@ -387,4 +541,15 @@ app.post('/api/chat', async (request, reply) => {
 const PORT = process.env.PORT || 3000;
 app.listen({ port: PORT, host: '0.0.0.0' }).then(() => {
   app.log.info(`Backend ready at http://localhost:${PORT}`);
+
+  const available = listAvailable();
+  app.log.info(`Providers with a key: ${available.join(', ') || 'none'}`);
+  if (chatProvider.name) {
+    app.log.info(`Answering with: ${chatProvider.name} (${chatProvider.reason})`);
+  } else {
+    app.log.warn('No provider key set - retrieval will work, but no answers can be written.');
+  }
+  if (chatProvider.fellBack && chatProvider.name) {
+    app.log.warn(`CHAT_PROVIDER fell back: ${chatProvider.reason}`);
+  }
 });

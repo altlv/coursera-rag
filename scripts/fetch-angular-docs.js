@@ -43,10 +43,53 @@ async function run() {
   const version = await docs.fetchDocsVersion();
   if (version) console.log(`angular.dev reports v${version}\n`);
 
-  const { pages, failures } = await docs.fetchPages(targets, (done, all) =>
+  const { pages, failures, skipped } = await docs.fetchPages(targets, (done, all) =>
     process.stdout.write(`\r  downloaded ${done}/${all}`),
   );
   console.log('\n');
+
+  /*
+   * Report skipped redirect shells, and whether their target was captured.
+   * Silently dropping them would hide a real gap: if a target falls outside
+   * SECTION_ALLOWLIST, that topic is missing from the corpus entirely.
+   */
+  if (skipped.length) {
+    const captured = new Set(pages.map((p) => p.path));
+    const stubTargets = new Map(skipped.map((s) => [s.path, s.target]));
+
+    /*
+     * Redirects CHAIN. /guide/components/importing points at
+     * /guide/components/anatomy-of-components, which is itself a shell pointing at
+     * /guide/components. Checking only one hop reports a false gap, because the
+     * intermediate hop was skipped too.
+     */
+    const resolve = (from) => {
+      const seen = new Set();
+      let current = stubTargets.get(from);
+      while (current && stubTargets.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = stubTargets.get(current);
+      }
+      return current;
+    };
+
+    const chains = skipped.filter((s) => s.target && stubTargets.has(s.target)).length;
+    const gaps = skipped
+      .map((s) => ({ ...s, resolved: resolve(s.path) }))
+      .filter((s) => s.resolved && !captured.has(s.resolved));
+
+    console.log(`Skipped ${skipped.length} redirect shell(s) - their content lives at the target.`);
+    if (chains) console.log(`  ${chains} of them chained through another shell.`);
+
+    if (gaps.length) {
+      console.log(`  WARNING: ${gaps.length} target(s) are NOT in the corpus:`);
+      for (const gap of gaps) console.log(`    ${gap.path} -> ${gap.resolved}`);
+      console.log('  Add them to SECTION_ALLOWLIST or that topic is unanswerable.');
+    } else {
+      console.log('  All targets resolve to pages that are present.');
+    }
+    console.log('');
+  }
 
   for (const page of pages) await docs.savePage(page);
   await docs.writeStructure(pages);

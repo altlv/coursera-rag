@@ -116,18 +116,116 @@ Reported as a level with its reasons attached, deliberately not a percentage: th
 
 Expand **"How this answer was built"** under any answer to see the passages, their similarity scores, the rank each method assigned, and the prompt token count.
 
+### A known limitation: confidence is provider-dependent
+
+Asking *"what about CSS?"* with **identical retrieved passages** produced opposite verdicts:
+
+| Provider | Status | Confidence |
+| --- | --- | --- |
+| OpenRouter (`llama-3.3-70b-instruct`) | `answered`, cited `[2][3][5]` | **high** |
+| OpenAI (`gpt-4o-mini`) | `partial` | **low** |
+
+Since `status` is weighted as the strongest confidence signal, and `status` is the *model's own judgement* about whether the passages answer the question, **confidence inherits that model's calibration**. Switching providers silently shifts the numbers.
+
+This is a genuine weakness, not a bug to hide. It is also not obvious which model was right: *"what about CSS?"* is partly answerable from the Angular styling docs, so Llama answering is defensible, while gpt-4o-mini refusing is arguably over-cautious. (For *"What does CSS stand for?"* — an acronym the docs never expand — refusing is clearly correct.)
+
+The honest reading: confidence is comparable **within** a provider, not **across** providers. A stricter design would calibrate per provider, or weight the score-derived signals more heavily to reduce the dependence on one model's judgement.
+
 Environment configuration:
 - Copy `.env.sample` to `.env` and set `OPENAI_API_KEY` there.
 - `.env` is ignored by git, so your secret key is not committed.
 - If you prefer, you can also set `OPENAI_API_KEY` directly in your shell before running the backend or embeddings build.
 
 The docs corpus and vector store:
-- `npm run download-docs` reads `https://angular.dev/sitemap.xml` and downloads the sections listed in `SECTION_ALLOWLIST` in `scripts/fetch-angular-docs.js`. Currently **134 pages** across Signals, Components, Templates, Directives, DI, Forms, Routing, HTTP, Pipes, Best practices and the essentials. Widening the corpus is a one-line edit to that array.
+- `npm run download-docs` reads `https://angular.dev/sitemap.xml` and downloads the sections listed in `SECTION_ALLOWLIST` in `scripts/docs-source.js`. Currently **114 pages** across Signals, Components, Templates, Directives, DI, Forms, Routing, HTTP, Pipes, Best practices and the essentials. Widening the corpus is a one-line edit to that array.
+- **Redirect shells are skipped.** angular.dev has restructured repeatedly, so 21 of the 135 allowlisted URLs now serve only a client-side redirect: a `<meta refresh>` and the line *"Redirecting to /guide/…"*, 24–83 characters long. They were filling the sidebar with entries titled "Redirecting" and the vector store with near-empty passages that could still win a similarity comparison against a short question. Their content lives at the target, which the sitemap lists separately — and 5 of them all pointed at the same page, so *following* them would have created duplicates.
+  - The filter checks length **and** wording, because length alone would wrongly drop `/guide/routing/redirecting-routes` — a genuine 4,897-character page *about* redirects.
+  - Redirects also **chain**: `/guide/components/importing` → `/guide/components/anatomy-of-components` → `/guide/components`. The scraper resolves chains before reporting whether a target is covered; a one-hop check reported false gaps.
+  - Any target falling outside the allowlist is reported as a **warning**, since that topic would otherwise be silently unanswerable. That check is what caught `/guide/signals/rxjs-interop` → `/ecosystem/rxjs-interop`, now added to the allowlist.
 - `npm run build-embeddings` produces two files, both gitignored because they are regenerable:
   - `docs/angular/chunks.json` - passage metadata and text (~1.4 MB)
   - `docs/angular/vectors.bin` - raw Float32 vectors, unit-normalised (~2.3 MB)
-- Roughly **1,136 passages** at 512 dimensions. Storing vectors as raw Float32 rather than JSON numbers keeps this at 2.3 MB; the same data as JSON would be around 45 MB and would need parsing on every server start.
+- Roughly **1,122 passages** at 512 dimensions. Storing vectors as raw Float32 rather than JSON numbers keeps this at 2.3 MB; the same data as JSON would be around 45 MB and would need parsing on every server start.
 - `npm run test:unit` runs the offline suites: chunking, vector maths, prompt assembly and the citation guard.
+
+## Switching which model writes the answers
+
+Set `CHAT_PROVIDER` in `.env` and restart the backend. Supported: `openai` (default), `gemini`, `openrouter`, `groq`, `xai`, `ollama`.
+
+All of them speak the OpenAI chat protocol, so the single `openai` package serves every one — adding a provider is a table entry in `server/llm-providers.js`, not a dependency.
+
+```bash
+GET /api/providers        # which providers have keys, and what is active
+```
+
+A per-request override is also accepted, so providers can be compared without restarting:
+
+```bash
+curl -X POST localhost:3000/api/chat -H 'Content-Type: application/json' \
+  -d '{"question":"what are signals?","provider":"groq"}'
+```
+
+If the requested provider has no key, the server **falls back** to one that does and says so, rather than failing to start or erroring the request.
+
+### Generation is switchable. Embeddings are not.
+
+This asymmetry is the important part:
+
+| | Switchable at runtime? | Why |
+| --- | --- | --- |
+| **Generation** | **Yes** | The writer receives passages retrieval already chose. Changing it changes only the prose — scores, citations and the golden set are unaffected |
+| **Embeddings** | **No** | The store holds 1,136 passages in `text-embedding-3-small`'s 512-dimension space. A different provider's embedding of the same text lands in a *different space*, and comparing across the two produces plausible numbers that mean nothing |
+
+So `OPENAI_API_KEY` is required regardless of `CHAT_PROVIDER` — it embeds the query. Changing the embedding provider means `npm run build-embeddings` **and** `npm run build-golden`, and the server refuses to load a store whose model or dimensions disagree with what it expects rather than silently returning nonsense.
+
+### When a provider fails
+
+Having a key is not the same as being able to use it. Both of these came up in practice:
+
+```
+xAI     403  "Your newly created team doesn't have any credits or licenses yet"
+Gemini  429  rate limited on a brand-new free-tier key
+```
+
+Both keys were valid. One cannot work until credits are bought; the other recovers by itself. Treating them the same would be wrong in both directions — so failures are **classified**, and only permanent ones remove a provider:
+
+| Failure | Kind | Permanent? | Effect |
+| --- | --- | --- | --- |
+| `403` no credits | `credits` | Yes | Removed from the switcher |
+| `401` bad key | `auth` | Yes | Removed |
+| `404` unknown model | `model` | Yes | Removed; hint points at `npm run list-models` |
+| `429` rate limited | `rate-limit` | **No** | Still offered, marked *(rate limited)*, re-checked after 60s |
+| `5xx` / network | `server` | No | Still offered |
+| Anything else | `unknown` | No | Still offered |
+
+Getting this backwards produces both classic bugs: a working provider hidden forever because it was briefly rate-limited, or a dead one offered again and again. Unknown failures deliberately **fail open** — a misclassified transient error recovers on its own, whereas a wrongly-permanent one is gone until restart.
+
+An unprobed provider counts as offerable too, so a first run doesn't look empty.
+
+In the UI: unusable providers disappear from the dropdown and a small ⚠ appears beside it, listing what's wrong on hover. Errors reach the user as the readable reason plus what to do — *"Google Gemini could not answer: Rate limited or over the current quota window. You can pick another provider above, or wait a moment and retry."* — rather than a raw status line. After any failure the frontend re-checks health, so a provider that dies mid-conversation stops being selectable.
+
+### What each answer shows
+
+| Badge | Meaning |
+| --- | --- |
+| Model name | Which provider wrote *that* answer. Recorded per message, because the provider can be switched mid-conversation |
+| `high` / `medium` / `low` | Composite confidence — hover for the reasons |
+| **How this answer was built** | Each passage with its similarity score, the rank each retrieval method gave it, and the prompt token count |
+| Sources vs **Closest pages found** | On a `partial` answer these are not citations, and are labelled accordingly |
+
+### Comparing providers
+
+```bash
+npm run compare-providers              # representative subset
+npm run compare-providers -- --all     # every golden question
+npm run compare-providers -- --only=groq
+```
+
+Retrieval runs **once per question**, and every provider is handed the identical passages, in the same order, with the same prompt. Any difference in output is therefore attributable to the model alone — not retrieval luck, not different context. Comparing two providers that each did their own retrieval would confound the writer with the evidence and teach you nothing about either.
+
+The behaviour worth watching is the `weak` case (*"What does CSS stand for?"*): does the model **admit** the passages don't answer the question, or does it pad an answer out of adjacent material? Frontier models usually emit the refusal sentinel correctly; smaller open-weight models often don't, and they cite less reliably. The script reports exactly that, per provider, alongside latency and token counts.
+
+Model IDs are **defaults, not guarantees** — provider naming churns. Override per provider (`GROQ_MODEL`, `GEMINI_MODEL`, …) or globally with `CHAT_MODEL`.
 
 ## Keeping the docs up to date
 
@@ -155,6 +253,8 @@ The hash covers `contentText`, not `contentHtml`, because `contentText` is preci
 Unchanged pages keep their existing vectors, copied straight across into the rebuilt store. A run that finds three changed pages embeds roughly 25 passages rather than all 1,136 - fractions of a cent instead of a full rebuild.
 
 `docs/angular/manifest.json` records the captured version and a hash per page. It is what makes the comparison possible, so it is committed alongside the pages.
+
+**The running server notices.** Every scrape rewrites `manifest.json`, and the backend watches its mtime to clear the page, structure and vector caches. Without that, a re-scrape appeared to do nothing — a fixed duplicate-heading bug looked unfixed for a while purely because the old HTML was still cached in memory.
 
 For a clean slate - a first run, or after widening `SECTION_ALLOWLIST` substantially - use `npm run download-docs` followed by `npm run build-embeddings` instead.
 

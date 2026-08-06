@@ -46,6 +46,10 @@
       "title": "Signals",
       "children": [
         {
+          "title": "RxJS interop with Angular signals",
+          "path": "/ecosystem/rxjs-interop"
+        },
+        {
           "title": "Angular Signals",
           "path": "/guide/signals"
         },
@@ -58,28 +62,12 @@
           "path": "/guide/signals/effect"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/signals/inputs"
-        },
-        {
           "title": "Dependent state with linkedSignal",
           "path": "/guide/signals/linked-signal"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/signals/model"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/signals/queries"
-        },
-        {
           "title": "Async reactivity with resources",
           "path": "/guide/signals/resource"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/signals/rxjs-interop"
         }
       ]
     },
@@ -95,10 +83,6 @@
           "path": "/guide/components/advanced-configuration"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/components/anatomy-of-components"
-        },
-        {
           "title": "Content projection with ng-content",
           "path": "/guide/components/content-projection"
         },
@@ -111,10 +95,6 @@
           "path": "/guide/components/host-elements"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/components/importing"
-        },
-        {
           "title": "Inheritance",
           "path": "/guide/components/inheritance"
         },
@@ -125,10 +105,6 @@
         {
           "title": "Component Lifecycle",
           "path": "/guide/components/lifecycle"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/components/output-function"
         },
         {
           "title": "Custom events with outputs",
@@ -160,16 +136,8 @@
           "path": "/guide/templates"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/templates/attribute-binding"
-        },
-        {
           "title": "Binding dynamic text, properties and attributes",
           "path": "/guide/templates/binding"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/class-binding"
         },
         {
           "title": "Control flow",
@@ -180,24 +148,12 @@
           "path": "/guide/templates/defer"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/templates/event-binding"
-        },
-        {
           "title": "Adding event listeners",
           "path": "/guide/templates/event-listeners"
         },
         {
           "title": "Expression Syntax",
           "path": "/guide/templates/expression-syntax"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/interpolation"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/let-template-variables"
         },
         {
           "title": "Grouping elements with ng-container",
@@ -214,26 +170,6 @@
         {
           "title": "Pipes",
           "path": "/guide/templates/pipes"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/property-binding"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/property-binding-best-practices"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/reference-variables"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/svg-in-templates"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/templates/template-statements"
         },
         {
           "title": "Two-way binding",
@@ -282,10 +218,6 @@
           "path": "/guide/di/creating-and-using-services"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/di/creating-injectable-service"
-        },
-        {
           "title": "Debugging and troubleshooting dependency injection",
           "path": "/guide/di/debugging-and-troubleshooting-di"
         },
@@ -294,16 +226,8 @@
           "path": "/guide/di/defining-dependency-providers"
         },
         {
-          "title": "Redirecting",
-          "path": "/guide/di/dependency-injection"
-        },
-        {
           "title": "Injection context",
           "path": "/guide/di/dependency-injection-context"
-        },
-        {
-          "title": "Redirecting",
-          "path": "/guide/di/dependency-injection-providers"
         },
         {
           "title": "DI in action",
@@ -515,15 +439,6 @@
         {
           "title": "Test requests",
           "path": "/guide/http/testing"
-        }
-      ]
-    },
-    {
-      "title": "Pipes",
-      "children": [
-        {
-          "title": "Redirecting",
-          "path": "/guide/pipes"
         }
       ]
     },

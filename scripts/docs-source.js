@@ -48,7 +48,26 @@ const SECTION_ALLOWLIST = [
   { section: 'Pipes', prefix: '/guide/pipes' },
   { section: 'Best practices', prefix: '/best-practices' },
   { section: 'Style guide', prefix: '/style-guide', exact: true },
+  /*
+   * Added because /guide/signals/rxjs-interop redirects here, and it was the one
+   * redirect target not otherwise covered by the allowlist. Without it, dropping
+   * that stub would have lost the RxJS interop content entirely.
+   */
+  { section: 'Signals', prefix: '/ecosystem/rxjs-interop', exact: true },
 ];
+
+/*
+ * Pages shorter than this are not content.
+ *
+ * angular.dev has restructured repeatedly, and old URLs now serve a client-side
+ * redirect shell: a <meta http-equiv="refresh"> plus the single line
+ * "Redirecting to /guide/...". They are 24-83 characters long.
+ *
+ * 21 of 134 pages were these. They polluted the sidebar with entries titled
+ * "Redirecting" and the vector store with near-empty passages that could still
+ * win a similarity comparison against a short question.
+ */
+const MIN_CONTENT_CHARS = 200;
 
 /*
  * Maps Angular changelog package names onto the doc sections they plausibly
@@ -278,20 +297,30 @@ function extractPage(html, pagePath) {
     )
     .forEach((node) => node.remove());
 
-  const title = (main.querySelector('h1')?.textContent || doc.title || pagePath)
-    .trim()
-    .replace(/\s+/g, ' ');
+  const heading = main.querySelector('h1');
+  const title = (heading?.textContent || doc.title || pagePath).trim().replace(/\s+/g, ' ');
 
   /*
    * contentText keeps newlines. Chunking splits on blank lines, so flattening
    * whitespace here would collapse each page into one giant chunk - the exact
    * bug that made the first corpus useless.
+   *
+   * Computed BEFORE the h1 is removed below, deliberately: the heading is useful
+   * retrieval signal, and dropping it would change every page's content hash and
+   * force a full re-embed for a display-only fix.
    */
   const contentText = (main.textContent || '')
     .replace(/[ \t]+/g, ' ')
     .replace(/[ \t]*\n[ \t]*/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+
+  /*
+   * Remove the h1 from the HTML only. The docs viewer renders `title` as its own
+   * heading, so leaving it here showed every page's title twice - visible as a
+   * doubled "Essentials" at the top of that page.
+   */
+  if (heading) heading.remove();
 
   return {
     title,
@@ -300,6 +329,25 @@ function extractPage(html, pagePath) {
     contentHtml: main.innerHTML.trim(),
     contentText,
   };
+}
+
+/**
+ * Is this a redirect shell rather than a real page?
+ *
+ * Checked on length AND wording, because length alone is not enough:
+ * /guide/routing/redirecting-routes is a genuine 4,897-character page ABOUT
+ * redirects, and a title-only check would have wrongly dropped it.
+ */
+function isRedirectStub(page) {
+  const text = (page.contentText || '').trim();
+  if (text.length >= MIN_CONTENT_CHARS) return false;
+  return /^redirecting\b/i.test(text) || /^redirecting$/i.test((page.title || '').trim());
+}
+
+/** Where a redirect stub was pointing, for reporting coverage gaps. */
+function redirectTargetOf(page) {
+  const match = (page.contentText || '').match(/Redirecting to (\S+)/i);
+  return match ? match[1].split('#')[0] : null;
 }
 
 /**
@@ -427,6 +475,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function fetchPages(paths, onProgress) {
   const pages = [];
   const failures = [];
+  const skipped = [];
 
   for (let i = 0; i < paths.length; i += CONCURRENCY) {
     const batch = paths.slice(i, i + CONCURRENCY);
@@ -436,6 +485,14 @@ async function fetchPages(paths, onProgress) {
         try {
           const page = extractPage(await fetchText(`${BASE_URL}${pagePath}`), pagePath);
           if (!page.contentText) throw new Error('no text extracted');
+
+          // Skip redirect shells. Their content lives at the target, which the
+          // sitemap lists separately, so keeping them would only add duplicates.
+          if (isRedirectStub(page)) {
+            skipped.push({ path: pagePath, target: redirectTargetOf(page) });
+            return;
+          }
+
           pages.push(page);
         } catch (error) {
           failures.push({ path: pagePath, message: error.message });
@@ -448,7 +505,7 @@ async function fetchPages(paths, onProgress) {
   }
 
   pages.sort((a, b) => a.path.localeCompare(b.path));
-  return { pages, failures };
+  return { pages, failures, skipped };
 }
 
 module.exports = {
@@ -469,6 +526,9 @@ module.exports = {
   sectionsForReleases,
   compareSemver,
   extractPage,
+  isRedirectStub,
+  redirectTargetOf,
+  MIN_CONTENT_CHARS,
   hashContent,
   savePage,
   deletePage,

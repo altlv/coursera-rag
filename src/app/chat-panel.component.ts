@@ -1,4 +1,4 @@
-import { Component, ElementRef, effect, inject, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, effect, inject, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ChatStore } from './chat.store';
@@ -56,6 +56,20 @@ export class ChatPanelComponent {
   protected rankEntries(ranks: Record<string, number>) {
     return Object.entries(ranks).map(([key, value]) => ({ key, value }));
   }
+
+  /** Empty string means "use the server default" rather than a named provider. */
+  protected onProviderChange(event: Event) {
+    const value = (event.target as HTMLSelectElement).value;
+    this.store.selectProvider(value || null);
+  }
+
+  /** Tooltip text for the unavailable-provider indicator. */
+  protected readonly unavailableSummary = computed(() =>
+    this.store
+      .unavailableProviders()
+      .map((p) => `${p.label}: ${p.hint ?? p.kind}`)
+      .join('\n'),
+  );
 
   protected readonly examples = [
     'What is a signal?',

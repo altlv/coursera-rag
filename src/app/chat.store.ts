@@ -2,8 +2,10 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import {
   ChatService,
   type ChatConfidence,
+  type ChatError,
   type ChatRetrieved,
   type ChatStatus,
+  type ProviderOption,
 } from './chat.service';
 
 export interface ChatMessageSource {
@@ -24,6 +26,14 @@ export interface ChatMessage {
   /** Retrieval trace, shown in the collapsible "how this was built" panel. */
   retrieved?: ChatRetrieved[];
   promptTokens?: number;
+  /**
+   * Which model wrote this. Recorded PER MESSAGE, not just globally, because the
+   * provider can be switched mid-conversation - so a single thread can contain
+   * answers from several models, and it matters which said what.
+   */
+  provider?: string;
+  providerLabel?: string;
+  model?: string;
   isError?: boolean;
 }
 
@@ -53,6 +63,49 @@ export class ChatStore {
 
   /** In-progress textarea content, so a half-typed question isn't lost either. */
   readonly draft = signal('');
+
+  /*
+   * Which providers are configured, and which one the user picked.
+   *
+   * `selectedProvider` is null until the user actively chooses, so the server's
+   * CHAT_PROVIDER stays authoritative by default rather than the UI silently
+   * pinning whatever happened to load first.
+   */
+  readonly providers = signal<ProviderOption[]>([]);
+  readonly unavailableProviders = signal<ProviderOption[]>([]);
+  readonly selectedProvider = signal<string | null>(null);
+  readonly activeProvider = signal<string | null>(null);
+
+  constructor() {
+    void this.loadProviders();
+  }
+
+  /** Only worth showing a switcher when there is more than one real choice. */
+  readonly canSwitchProvider = computed(() => this.providers().length > 1);
+
+  async loadProviders() {
+    try {
+      const info = await this.chatService.providers();
+      this.providers.set(info.available);
+      this.unavailableProviders.set(info.unavailable ?? []);
+      this.activeProvider.set(info.active);
+
+      // If the selected provider has since been demoted, fall back to the
+      // server default rather than repeatedly sending questions to a dead one.
+      const selected = this.selectedProvider();
+      if (selected && !info.available.some((p) => p.name === selected)) {
+        this.selectedProvider.set(null);
+      }
+    } catch {
+      // Non-fatal: the switcher simply doesn't render, and the server's own
+      // default still answers every question.
+      this.providers.set([]);
+    }
+  }
+
+  selectProvider(name: string | null) {
+    this.selectedProvider.set(name);
+  }
 
   /** Excludes the seeded welcome message, so the UI can tell "fresh" from "used". */
   readonly hasConversation = computed(
@@ -85,7 +138,7 @@ export class ChatStore {
     this.isLoading.set(true);
 
     try {
-      const response = await this.chatService.ask(text);
+      const response = await this.chatService.ask(text, this.selectedProvider() ?? undefined);
       this.messages.update((list) => [
         ...list,
         {
@@ -95,6 +148,9 @@ export class ChatStore {
           confidence: response.confidence,
           retrieved: response.retrieved,
           promptTokens: response.usage?.prompt_tokens,
+          provider: response.provider ?? undefined,
+          providerLabel: response.providerLabel ?? undefined,
+          model: response.model ?? undefined,
           sources: response.sources.map((source) => ({
             title: source.title,
             path: source.path,
@@ -103,17 +159,36 @@ export class ChatStore {
         },
       ]);
     } catch (error) {
+      /*
+       * Turn a provider failure into something actionable.
+       *
+       * A transient failure (rate limit) is worth retrying or routing elsewhere;
+       * a permanent one (no credits, revoked key) needs configuration. Saying
+       * which, and what to do, beats echoing a status line.
+       */
+      const chatError = error as ChatError;
+      let text =
+        chatError?.message || 'Failed to reach the backend. Is it running on port 3000?';
+
+      if (chatError?.errorKind === 'rate-limit') {
+        text += this.canSwitchProvider()
+          ? ' You can pick another provider above, or wait a moment and retry.'
+          : ' Wait a moment and try again.';
+      } else if (chatError?.permanent && this.canSwitchProvider()) {
+        text += ' Pick another provider above.';
+      }
+
       this.messages.update((list) => [
         ...list,
-        {
-          role: 'assistant',
-          text:
-            error instanceof Error
-              ? error.message
-              : 'Failed to reach the backend. Is it running on port 3000?',
-          isError: true,
-        },
+        { role: 'assistant', text, isError: true },
       ]);
+
+      /*
+       * Re-check health after a failure. If the provider failed permanently -
+       * out of credits, revoked key - the server has now demoted it, so this
+       * removes it from the switcher instead of letting the user pick it again.
+       */
+      void this.loadProviders();
     } finally {
       this.isLoading.set(false);
     }
