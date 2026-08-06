@@ -1,13 +1,16 @@
 /**
  * Single source of truth for project status.
  *
- * The Overview page renders this. The README deliberately does NOT repeat it:
- * the roadmap used to be transcribed into both places by hand, and they drifted
- * until the README knew the docs viewer had shipped while the task list still
- * called it "not started".
+ * The Overview page renders this. The README deliberately does NOT repeat it: the
+ * roadmap used to be transcribed into both places by hand, and they drifted until
+ * the README knew the docs viewer had shipped while the task list still called it
+ * "not started".
  *
- * To update status, edit this file in a commit. That keeps the claim and the
- * code in the same diff, which is the only thing that reliably stops rot.
+ * To update status, edit this file in a commit. That keeps the claim and the code
+ * in the same diff, which is the only thing that reliably stops rot.
+ *
+ * Grouped by CONCERN rather than chronology, so the remaining work in any one area
+ * is visible at a glance.
  */
 
 export type TaskStatus = 'done' | 'in progress' | 'todo';
@@ -27,6 +30,7 @@ export interface RoadmapPhase {
 }
 
 export const ROADMAP: RoadmapPhase[] = [
+  // -------------------------------------------------------------------------
   {
     name: 'Foundations',
     summary: 'App shell, docs corpus and the backend that serves it.',
@@ -44,12 +48,6 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'server/index.js',
       },
       {
-        title: 'Angular docs scraper',
-        detail: 'Downloads angular.dev pages to JSON under docs/angular/.',
-        status: 'done',
-        where: 'scripts/fetch-angular-docs.js',
-      },
-      {
         title: 'Docs viewer page',
         detail: 'Sidebar tree plus a reading pane for any downloaded page.',
         status: 'done',
@@ -62,76 +60,116 @@ export const ROADMAP: RoadmapPhase[] = [
         status: 'done',
         where: 'src/styles.css',
       },
+      {
+        title: 'Testable pipeline module',
+        detail:
+          'Chunking, vector maths and prompt assembly as pure functions. Nothing in the server was exported before, so none of it could be tested.',
+        status: 'done',
+        where: 'server/rag.js',
+      },
     ],
   },
+
+  // -------------------------------------------------------------------------
   {
-    name: 'Retrieval',
-    summary: 'Turning documentation into something searchable by meaning.',
+    name: 'Corpus',
+    summary: 'Getting the right documentation onto disk, and keeping it current.',
     tasks: [
       {
-        title: 'Lexical keyword search',
-        detail: 'Token-overlap scoring, used as a fallback when vectors are unavailable.',
+        title: 'Scrape from sitemap.xml',
+        detail:
+          'Was 23 pages with none of the core guides: the scraper read the sidebar from one page, but angular.dev renders collapsed nav sections with no children, so Signals, Components, Templates, Forms, Routing and DI were all missed. Now 114 pages across 12 sections.',
         status: 'done',
-        where: 'server/index.js searchDocs()',
+        where: 'scripts/docs-source.js',
       },
       {
+        title: 'Drop redirect shells',
+        detail:
+          '21 of 135 allowlisted URLs serve only a client-side redirect, 24-83 characters long. They filled the sidebar with entries titled "Redirecting" and the store with near-empty passages. Skipped rather than followed, since five pointed at the same page. Chains are resolved, and any target outside the allowlist is reported as a warning.',
+        status: 'done',
+        where: 'scripts/docs-source.js isRedirectStub()',
+      },
+      {
+        title: 'Incremental updates',
+        detail:
+          'docs:check reports the captured version against angular.dev and npm, lists releases since, and shows which pages differ - free, no API calls. docs:update re-embeds only what changed. Fetching is free and embedding is not, so hashes decide the work.',
+        status: 'done',
+        where: 'scripts/update-docs.js',
+      },
+      {
+        title: 'Notice a changed corpus while running',
+        detail:
+          'The server watches manifest.json mtime and clears its caches. Without it a re-scrape appeared to do nothing - a fixed duplicate-heading bug looked unfixed purely because old HTML was still cached.',
+        status: 'done',
+        where: 'server/index.js invalidateIfCorpusChanged()',
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  {
+    name: 'Retrieval',
+    summary: 'Finding the passages that actually answer a question.',
+    tasks: [
+      {
         title: 'Embeddings and vector search',
-        detail: 'text-embedding-3-small vectors, ranked by similarity against the question.',
+        detail: 'text-embedding-3-small at 512 dimensions, unit-normalised so query time is a dot product.',
         status: 'done',
         where: 'server/build-vector-store.js',
       },
       {
-        title: 'Testable pipeline module',
-        detail:
-          'Chunking, vector maths and prompt assembly extracted into pure functions. Nothing in the server was exported before, so none of it could be tested.',
-        status: 'done',
-        where: 'server/rag.js',
-      },
-      {
         title: 'Fix the chunking bug',
         detail:
-          'Whitespace normalisation stripped the newlines that chunking splits on, so every page became one chunk of up to 53,547 characters and the size limit was never enforced. Passages are now capped at 1,200 characters with 150 of overlap, which cut a question from ~10,400 prompt tokens to ~1,300.',
+          'Whitespace normalisation stripped the newlines chunking splits on, so every page became one chunk of up to 53,547 characters. Passages are now capped at 1,200 with 150 overlap, cutting a question from ~10,400 prompt tokens to ~1,300.',
         status: 'done',
         where: 'server/rag.js chunkText()',
       },
       {
         title: 'Binary vector storage',
         detail:
-          'Metadata as JSON, vectors as raw Float32 at 512 dimensions and unit-normalised at build time. 1,136 passages occupy 2.3 MB; the same data as JSON numbers would be roughly 45 MB and need parsing on every server start.',
+          'Metadata as JSON, vectors as raw Float32. 1,122 passages occupy 2.2 MB; the same data as JSON numbers would be ~45 MB and need parsing on every start.',
         status: 'done',
         where: 'docs/angular/chunks.json + vectors.bin',
       },
       {
-        title: 'Incremental docs updates',
+        title: 'Hybrid search and diversity cap',
         detail:
-          'npm run docs:check reports the captured version against angular.dev and npm, lists Angular releases since, and shows exactly which pages differ - free, no API calls. npm run docs:update applies it and re-embeds only the changed pages, keeping existing vectors for the rest. Fetching is free and embedding is not, so hashes decide the work while version and changelog supply the narrative.',
+          'BM25 fused with vector similarity by Reciprocal Rank Fusion, plus at most 2 passages per page. Fixed the one golden-set miss and took hit@3 from 92% to 100%.',
         status: 'done',
-        where: 'scripts/update-docs.js, scripts/docs-source.js',
+        where: 'server/rag.js selectChunksHybrid()',
       },
       {
-        title: 'Expand the docs corpus',
+        title: 'Search both question formulations',
         detail:
-          'Was 23 pages with none of the core guides. The scraper read the sidebar from a single page, but angular.dev renders collapsed nav sections with no children, so Signals, Components, Templates, Forms, Routing, HTTP and DI were all missed. Now reads sitemap.xml against an allowlist: 134 pages, and "what is a signal?" retrieves /guide/signals first instead of AI-tooling pages.',
+          'Rewriting is not reliably better: "what about validation?" retrieved the right page at rank 1 as typed and lost it once rewritten. So both are searched and all rankings fused - which found a page neither formulation found alone.',
         status: 'done',
-        where: 'scripts/fetch-angular-docs.js',
+        where: 'server/rag.js selectChunksMultiQuery()',
+      },
+      {
+        title: 'Reranking',
+        detail:
+          'Retrieve ~20 by vector then rerank to 5 with a cheap model call. Would help where fusion still ranks the best passage below the top 3. Worth doing only once the eval loop can prove it helped.',
+        status: 'todo',
       },
     ],
   },
+
+  // -------------------------------------------------------------------------
   {
     name: 'Answering',
-    summary: 'Writing grounded answers instead of listing search hits.',
+    summary: 'Turning passages into grounded answers, and knowing when not to.',
     tasks: [
       {
         title: 'Generate real answers',
         detail:
-          'The endpoint used to return a hardcoded string: "I found 4 relevant chunks...". It now assembles retrieved passages into a prompt and calls gpt-4o-mini.',
+          'The endpoint used to return a hardcoded string: "I found 4 relevant chunks...". It now assembles retrieved passages into a prompt and calls a model.',
         status: 'done',
         where: 'server/rag.js generateAnswer()',
       },
       {
         title: 'Citations and hallucination guard',
         detail:
-          'Answers cite numbered sources, and any citation pointing outside the passages actually retrieved is stripped. An unchecked citation is worse than none, because it looks verified.',
+          'Answers cite numbered sources, and any citation outside the supplied passages is stripped. An unchecked citation is worse than none, because it looks verified.',
         status: 'done',
         where: 'server/rag.js extractCitations()',
       },
@@ -145,17 +183,45 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Partial answers',
         detail:
-          'A third outcome between answering and refusing. When passages clear the floor but none answer the question, the model signals it and we offer the closest pages instead of an answer. Retrieval cannot detect this on score alone - "What does CSS stand for?" scores 0.457 because the styling pages really are about CSS; what is missing is the acronym.',
+          'A third outcome between answering and refusing. Retrieval cannot detect this on score alone - "What does CSS stand for?" scores 0.457 because the styling pages really are about CSS; what is missing is the acronym.',
         status: 'done',
         where: 'server/rag.js generateAnswer()',
       },
       {
         title: 'Answer confidence',
         detail:
-          'high/medium/low from a composite of the model verdict, citation coverage, score gap and page corroboration - never from similarity alone, which would rate an unanswerable question as highly as a real one. Known limitation: it leans on the model verdict, so it is comparable within a provider but not across providers.',
+          'high/medium/low from a composite of the model verdict, citation coverage, score gap and page corroboration - never similarity alone, which would rate an unanswerable question as highly as a real one.',
         status: 'done',
         where: 'server/rag.js assessConfidence()',
       },
+      {
+        title: 'Working memory for follow-ups',
+        detail:
+          'One cheap call rewrites "how do I test it?" into a standalone question, built from the user\'s own questions and retrieved doc paths - never model prose, so retrieval stays independent of the active model. Three exchanges reach the answer prompt, and answers from a different model are labelled so it does not inherit them.',
+        status: 'done',
+        where: 'server/rag.js rewriteQuestion()',
+      },
+      {
+        title: 'Surface contradictions instead of merging them',
+        detail:
+          'Passages are selected for similarity, never for agreeing with each other, so the prompt can contain version drift or a deprecated API beside its replacement - and a model faithfully reproduces both. The prompt should ask it to flag disagreement and cite both sides, and passage rank should be passed so stronger evidence outweighs weaker. The citation guard catches invented sources and is blind to conflicting ones.',
+        status: 'todo',
+        where: 'server/rag.js SYSTEM_PROMPT, buildPrompt()',
+      },
+      {
+        title: 'Calibrate confidence per provider',
+        detail:
+          'Identical passages produced opposite verdicts: llama-3.3-70b answered with high confidence where gpt-4o-mini returned partial/low. Confidence weights the model verdict most heavily, so it is comparable within a provider but not across them. Also skews optimistic on follow-ups, since a passage reports its best score across both formulations.',
+        status: 'todo',
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  {
+    name: 'Providers',
+    summary: 'Choosing which model answers, and coping when it cannot.',
+    tasks: [
       {
         title: 'Switch which model answers',
         detail:
@@ -164,35 +230,76 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'server/llm-providers.js',
       },
       {
-        title: 'Handle providers that cannot answer',
+        title: 'Classify provider failures',
         detail:
-          'A key can be present and unusable: xAI returned 403 "no credits or licenses yet", Gemini 429 on a fresh key. Failures are classified permanent or transient - only permanent ones remove a provider from the switcher, and unknown failures fail open.',
+          'A key can be present and unusable: xAI returned 403 "no credits or licenses yet", Gemini 429 on a fresh key. Only permanent failures remove a provider from the switcher; unknown ones fail open, because a misclassified transient recovers whereas a wrongly-permanent one is gone until restart.',
         status: 'done',
         where: 'server/provider-health.js',
       },
       {
-        title: 'Golden-set retrieval tests',
+        title: 'Compare providers on identical evidence',
         detail:
-          'Fifteen questions covering match, no-match and adjacent-but-unanswered outcomes, measured as hit@3 and MRR. Question vectors are cached to a fixture, so the suite is free, offline and CI-safe. Currently hit@3 13/13 with MRR 1.000. It also disproved its own premise: the "adjacent" case was meant to score low enough to be distinguishable, but "What does CSS stand for?" scores 0.457 - above several real questions - so no threshold can separate them.',
+          'compare-providers retrieves once and hands every provider the same passages, so differences are attributable to the model alone. list-models asks each provider what it actually offers, which immediately revealed that Gemini prefixes ids with "models/".',
         status: 'done',
-        where: 'test/retrieval.test.mjs, test/golden-set.mjs',
+        where: 'scripts/compare-providers.js, scripts/list-models.js',
       },
       {
-        title: 'Hybrid retrieval and diversity cap',
+        title: 'Retry transient failures with backoff',
         detail:
-          'BM25 keyword ranking fused with vector similarity by Reciprocal Rank Fusion, plus a limit of 2 passages per page. Fixed the one golden-set miss - "how do I pass data into a component?" ranked /guide/components/inputs 5th because the question says "pass data" and the page says "input" - and took hit@3 from 92% to 100%.',
-        status: 'done',
-        where: 'server/rag.js selectChunksHybrid()',
+          'Health already knows which failures are transient, and currently does nothing with that knowledge - a single 429 fails a request that one retry would have satisfied.',
+        status: 'todo',
+        where: 'server/llm-providers.js',
       },
       {
-        title: 'Drop redirect shells from the corpus',
+        title: 'Resolve the Gemini model naming question',
         detail:
-          '21 of 135 allowlisted URLs now serve only a client-side redirect, 24-83 characters long. They filled the sidebar with entries titled "Redirecting" and the vector store with near-empty passages. Skipped, with chain resolution and a warning when a target falls outside the allowlist.',
-        status: 'done',
-        where: 'scripts/docs-source.js isRedirectStub()',
+          'Both the bare name and the "models/" prefix returned 429, so quota masked which form the OpenAI-compatibility layer wants. Blocked until the free-tier limit resets.',
+        status: 'todo',
       },
     ],
   },
+
+  // -------------------------------------------------------------------------
+  {
+    name: 'Safeguards',
+    summary: 'Failure modes that are cheap to prevent and expensive to debug.',
+    tasks: [
+      {
+        title: 'Embedding-space integrity',
+        detail:
+          'Vectors from two models are incompatible, and comparing them returns plausible numbers while measuring nothing - so it is guarded in six places: the store records model and dimensions, byte length is validated on load, dotProduct throws on a length mismatch, embedQuery reads the model from the store, the golden fixture asserts a matching space, and createEmbedder refuses to follow CHAT_PROVIDER.',
+        status: 'done',
+        where: 'server/rag.js, server/index.js, test/retrieval.test.mjs',
+      },
+      {
+        title: 'Timeout on model calls',
+        detail:
+          'Nothing bounds how long a provider may take, so a hung request hangs the whole question. The most likely of these gaps to actually bite.',
+        status: 'todo',
+        where: 'server/llm-providers.js',
+      },
+      {
+        title: 'Cap question length',
+        detail:
+          '/api/chat checks only that a question is a non-empty string, so a 50,000-character question goes straight into the prompt - a cost and context blowout with no guard.',
+        status: 'todo',
+        where: 'server/index.js',
+      },
+      {
+        title: 'Spend ceiling',
+        detail:
+          'Nothing caps cumulative API cost. Low risk on a local prototype, real the moment it is exposed.',
+        status: 'todo',
+      },
+      {
+        title: 'Rate limiting on /api/chat',
+        detail: 'Only matters beyond localhost, but trivial to add before it does.',
+        status: 'todo',
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
   {
     name: 'Interface',
     summary: 'Making the assistant usable while reading the docs.',
@@ -200,71 +307,107 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Persistent chat rail',
         detail:
-          'Chat is docked beside the content and lives outside the router outlet, so the conversation survives moving between Overview and Docs. It used to be a page whose state was destroyed on every navigation.',
+          'Docked beside the content and outside the router outlet, so the conversation survives navigation. It used to be a page whose state was destroyed on every route change.',
         status: 'done',
         where: 'src/app/chat-panel.component.ts, chat.store.ts',
       },
       {
         title: 'Clickable citations',
-        detail:
-          'Each source opens in the local docs viewer without disturbing the conversation, and links out to angular.dev.',
+        detail: 'Each source opens in the local docs viewer without disturbing the conversation.',
         status: 'done',
         where: 'src/app/chat-panel.component.html',
       },
       {
         title: 'Show how each answer was built',
         detail:
-          'Every answer carries the model that wrote it, a confidence badge, and a collapsible panel listing each passage with its similarity score, the rank each retrieval method gave it, and the prompt token count. All of it was already in the API response and was being discarded.',
+          'Model that wrote it, confidence badge, the rewritten question when one was used, and a collapsible panel with each passage, its score, per-method ranks and token count. All of it was already in the API response and being discarded.',
         status: 'done',
         where: 'src/app/chat-panel.component.html',
       },
       {
-        title: 'Working memory: chain follow-up questions',
+        title: 'Provider switcher with health',
         detail:
-          'Follow-ups now resolve against the conversation. One cheap model call rewrites "how do I test it?" into a standalone question, built from the user\'s own questions and the doc paths already retrieved - never from model prose, so retrieval stays independent of which model is active. Rewriting turned out NOT to be reliably better ("what about validation?" retrieved the right page at rank 1 as typed and lost it once rewritten), so both formulations are searched and all rankings fused. Three exchanges of history reach the answer prompt, and answers from a different model are labelled so it does not inherit them.',
+          'Unusable providers disappear from the dropdown, with a hover indicator explaining why; rate-limited ones stay but are marked.',
         status: 'done',
-        where: 'server/rag.js rewriteQuestion(), selectChunksMultiQuery()',
+        where: 'src/app/chat-panel.component.html',
       },
       {
         title: 'Documentation index',
         detail:
-          'A browsable list of every indexed page with its real angular.dev URL, so it is clear what the assistant can and cannot answer from.',
+          'A browsable list of every indexed page with its real angular.dev URL, so it is clear what the assistant can and cannot answer from. Needs GET /api/docs/list and a DocsService that caches - the tree is currently refetched on every visit.',
         status: 'todo',
-        where: 'GET /api/docs/list',
+        where: 'server/index.js, src/app/docs.service.ts',
+      },
+      {
+        title: 'Stream answers',
+        detail: 'Render tokens as they arrive instead of 2-4 seconds of dead air.',
+        status: 'todo',
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  {
+    name: 'Evaluation',
+    summary: 'Knowing whether a change helped, rather than assuming.',
+    tasks: [
+      {
+        title: 'Golden-set retrieval suite',
+        detail:
+          'Fifteen questions covering match, no-match and adjacent-but-unanswered outcomes, measured as hit@3 and MRR, currently 13/13 and 1.000. Question vectors are cached so it runs free and offline. It also disproved its own premise about score bands, and caught a real retrieval weakness rather than letting it hide behind a widened expectation.',
+        status: 'done',
+        where: 'test/retrieval.test.mjs, test/golden-set.mjs',
+      },
+      {
+        title: 'Continuous integration',
+        detail:
+          '148 tests exist and nothing runs them on push, so every guard protects only whoever remembers to run it.',
+        status: 'todo',
+      },
+      {
+        title: 'Log questions for analysis',
+        detail:
+          'No record of what is actually asked, so the golden set stays fifteen guesses. Should capture the question, the rewritten form, retrieved paths with scores, status, confidence and tokens - enough to reconstruct any decision. It is user data, so it stays gitignored and needs a retention decision before any deployment.',
+        status: 'todo',
       },
       {
         title: 'Feedback loop',
         detail:
-          'Thumbs up/down per answer, logged with the retrieved passages, so failures become golden-set cases. The golden set is currently 15 questions someone guessed; real logs would show what people actually ask, including the phrasings that fail.',
+          'Thumbs up/down per answer. Logs alone say what was asked, not whether the answer was good - pairing them is what turns a failure into a regression test.',
         status: 'todo',
       },
       {
-        title: 'Fix dead links in the docs sidebar',
+        title: 'Semantic cache',
         detail:
-          'The nav tree had 28 entries with no path, which rendered as links to /docs?path=undefined. The rebuilt scraper groups pages under section headings where every leaf carries a real path, so there are now zero dead links.',
-        status: 'done',
-        where: 'scripts/fetch-angular-docs.js buildStructure()',
+          'Reuse an answer when a new question is very close to a previous one. Saves cost and latency on repeats; risks stale answers after a docs update and near-miss collisions. An optimisation, so it comes after the measurement.',
+        status: 'todo',
       },
     ],
   },
+
+  // -------------------------------------------------------------------------
   {
     name: 'Documentation',
-    summary: 'Explaining how it works, for learning rather than for setup.',
+    summary: 'Explaining how it works, for learning rather than setup.',
     tasks: [
+      {
+        title: 'README as the front door',
+        detail:
+          'Architecture, setup, retrieval design, confidence, provider switching and failure handling, working memory, and the incremental update flow - each with the measurement that motivated it. Status deliberately lives here in roadmap.data.ts instead.',
+        status: 'done',
+        where: 'README.md',
+      },
+      {
+        title: 'Document the safeguards',
+        detail:
+          'The guard inventory has no single home: why cross-model vectors are incompatible and fail silently, what each guard prevents, and which gaps remain open.',
+        status: 'todo',
+        where: 'README.md',
+      },
       {
         title: 'LEARN-RAG.md',
         detail:
-          'What embeddings are, why unit-normalising turns cosine similarity into a dot product, how chunk size is chosen, how to evaluate retrieval, and when a real vector database would start to earn its place.',
-        status: 'todo',
-      },
-      {
-        title: 'Rewrite the README',
-        detail: 'Architecture, quick start and the plan. Status stays here, not there.',
-        status: 'todo',
-      },
-      {
-        title: 'CI',
-        detail: 'Run the offline suites on push.',
+          'The teaching deliverable. What an embedding is, why unit-normalising turns cosine into a dot product, how chunk size was chosen, why retrieval and generation must be evaluated separately, how rank fusion works, and when a real vector database would start to earn its place. Written last, because it documents settled architecture.',
         status: 'todo',
       },
     ],

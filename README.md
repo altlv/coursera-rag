@@ -270,6 +270,59 @@ The behaviour worth watching is the `weak` case (*"What does CSS stand for?"*): 
 
 Model IDs are **defaults, not guarantees** — provider naming churns. Override per provider (`GROQ_MODEL`, `GEMINI_MODEL`, …) or globally with `CHAT_MODEL`.
 
+## Safeguards
+
+Most RAG failures don't announce themselves. They return plausible output while being wrong, which makes them expensive to find and cheap to prevent. These are the guards, and what each one prevents.
+
+### The silent one: incompatible vectors
+
+An embedding model maps text into ℝⁿ, and **the axes of that space are arbitrary** — dimension 47 doesn't mean "is about routing". The geometry is an artifact of one training run. Two models produce two unrelated coordinate systems, with no transformation between them, because nothing ever aligned them.
+
+So a cosine similarity between a query vector from model A and passage vectors from model B measures the incidental overlap of two arbitrary bases. **It doesn't throw** — you get numbers in [-1, 1] that look entirely normal, and a confidently wrong ranking. The tell-tale symptom is *the same few passages returned regardless of the question*.
+
+This applies to more than "a different model": same family at a different size (`3-small` vs `3-large`) and the same model at a different dimension count are also different spaces. It's not that two encoders can never share a space — it's that they must be *trained to*, as dense-retrieval architectures do with paired query and passage encoders. Two independently trained models never qualify.
+
+Guarded in six places, because one check is not enough:
+
+| Guard | Prevents |
+| --- | --- |
+| `chunks.json` records model + dimensions | Ambiguity about what built the store |
+| `vectors.bin` byte length validated against `chunks × dims` | A half-written or mismatched store loading anyway |
+| `dotProduct` **throws** on a length mismatch | Silently scoring the first N dimensions of two unrelated spaces |
+| `embedQuery` reads the model from the store, not a constant | The two drifting apart — it was previously declared twice |
+| The golden fixture records model + dimensions and asserts they match | A test suite that passes while measuring nothing |
+| `createEmbedder` deliberately does not follow `CHAT_PROVIDER` | Switching the chat model silently corrupting retrieval |
+
+That last one is why changing the embedding provider is a **rebuild** (`build-embeddings` + `build-golden`), never a setting.
+
+A related failure worth knowing, which no guard here can catch: an embedding model trained for **classification** rather than retrieval will also return unrelated results, even used correctly on both sides. Its objective taught it to encode *label identity* and discard intra-class detail, and it never saw query-document pairs — so similarity means "same category", not "answers this". The API surface gives no hint. `text-embedding-3-small` is retrieval-trained, which is why inferential queries work here at all.
+
+### Answer integrity
+
+| Guard | Prevents |
+| --- | --- |
+| Score floor → refusal **without a model call** | Answering off-topic questions from the model's own memory. Also makes refusals free |
+| Citations outside the supplied range are stripped | An invented source that looks verified — worse than no citation |
+| Explicit `NO_ANSWER_IN_DOCS` sentinel | Inferring failure from missing citations, which breaks whenever a model answers correctly without citing |
+| History marked "not a citable source" | A model citing its own earlier prose as evidence |
+| Answers from another model are labelled | Model B inheriting model A's claims — defending an answer, or standing by a refusal, it never made |
+| Implausible rewrites fall back to the question as typed | A model that answers instead of rewriting poisoning retrieval |
+
+### Known gaps
+
+Stated plainly rather than left implicit:
+
+| Gap | Risk |
+| --- | --- |
+| **No timeout on model calls** | A hung provider hangs the request indefinitely. Most likely to bite |
+| **No cap on question length** | `/api/chat` checks only for a non-empty string, so a 50,000-character question goes straight into the prompt |
+| **No retry on transient failures** | Failures *are* classified permanent vs transient, and that knowledge is then unused — a single 429 fails a request one retry would have satisfied |
+| **No CI** | 148 tests exist and nothing runs them on push, so every guard above protects only whoever remembers to run it |
+| **No spend ceiling or rate limiting** | Low risk locally, real once exposed |
+| **Contradiction blind spot** | Passages are selected for similarity, never for agreeing with each other. Version drift or a deprecated API beside its replacement can put conflicting claims in one prompt, and a model faithfully reproduces both. The citation guard catches *invented* sources and is blind to *conflicting* ones |
+
+Live status for all of these is on the Overview page, from `src/app/roadmap.data.ts`.
+
 ## Keeping the docs up to date
 
 The corpus is a snapshot, so it goes stale as Angular releases. Two commands:
