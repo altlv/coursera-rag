@@ -7,7 +7,9 @@
 :host {
   display: block;
   height: 100%;
+  max-height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 /* ---------- Collapsed tab ---------- */
@@ -344,13 +346,20 @@
 
 /* ---------- Composer ---------- */
 
+/*
+ * `align-items: flex-start` so the round send button lines up with the TOP of
+ * the textarea, keeping it on the same level as the first line of input. With
+ * flex-end it sank to the bottom edge and drifted further out of line as the
+ * textarea was resized.
+ */
 .composer {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-3);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface);
+  flex: none;
 }
 
 .composer textarea {
