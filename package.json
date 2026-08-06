@@ -10,6 +10,8 @@
     "test:unit": "vitest run --reporter dot",
     "download-docs": "node ./scripts/fetch-angular-docs.js",
     "build-embeddings": "node ./server/build-vector-store.js",
+    "docs:check": "node ./scripts/update-docs.js --check",
+    "docs:update": "node ./scripts/update-docs.js",
     "start-backend": "node ./server/index.js"
   },
   "private": true,

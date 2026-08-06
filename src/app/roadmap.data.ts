@@ -102,6 +102,13 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'docs/angular/chunks.json + vectors.bin',
       },
       {
+        title: 'Incremental docs updates',
+        detail:
+          'npm run docs:check reports the captured version against angular.dev and npm, lists Angular releases since, and shows exactly which pages differ - free, no API calls. npm run docs:update applies it and re-embeds only the changed pages, keeping existing vectors for the rest. Fetching is free and embedding is not, so hashes decide the work while version and changelog supply the narrative.',
+        status: 'done',
+        where: 'scripts/update-docs.js, scripts/docs-source.js',
+      },
+      {
         title: 'Expand the docs corpus',
         detail:
           'Was 23 pages with none of the core guides. The scraper read the sidebar from a single page, but angular.dev renders collapsed nav sections with no children, so Signals, Components, Templates, Forms, Routing, HTTP and DI were all missed. Now reads sitemap.xml against an allowlist: 134 pages, and "what is a signal?" retrieves /guide/signals first instead of AI-tooling pages.',

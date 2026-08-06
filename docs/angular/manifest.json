@@ -1,0 +1,678 @@
+{
+  "angularVersion": "22.1.0",
+  "latestRelease": "22.1.0",
+  "updatedAt": "2026-08-06T19:10:40.323Z",
+  "pageCount": 134,
+  "pages": {
+    "/best-practices/a11y": {
+      "title": "Accessibility in Angular",
+      "hash": "2d0910330c85f674",
+      "chars": 9174
+    },
+    "/best-practices/error-handling": {
+      "title": "Unhandled errors in Angular",
+      "hash": "13dde7ae17caf19c",
+      "chars": 6123
+    },
+    "/best-practices/performance": {
+      "title": "Performance",
+      "hash": "dda2ad33bb8e30ab",
+      "chars": 3644
+    },
+    "/best-practices/performance/defer": {
+      "title": "Deferred loading with @defer",
+      "hash": "28912d9bbf0f12cc",
+      "chars": 16857
+    },
+    "/best-practices/performance/image-optimization": {
+      "title": "Getting started with NgOptimizedImage",
+      "hash": "b6a2bd2fb43fff51",
+      "chars": 23680
+    },
+    "/best-practices/performance/lazy-loaded-routes": {
+      "title": "Route Loading Strategies",
+      "hash": "256a63323357f456",
+      "chars": 4127
+    },
+    "/best-practices/performance/lazy-loading-services": {
+      "title": "Lazy loading services",
+      "hash": "c211f83a969753bf",
+      "chars": 3243
+    },
+    "/best-practices/performance/ssr": {
+      "title": "Server and hybrid rendering",
+      "hash": "0ab4da23031cd5d1",
+      "chars": 27749
+    },
+    "/best-practices/profiling-with-chrome-devtools": {
+      "title": "Profiling with the Chrome DevTools",
+      "hash": "51386aceaee9e444",
+      "chars": 5296
+    },
+    "/best-practices/runtime-performance": {
+      "title": "Runtime performance optimization",
+      "hash": "f23f8460461164f3",
+      "chars": 1308
+    },
+    "/best-practices/security": {
+      "title": "Security",
+      "hash": "2fbb2fd9ec703933",
+      "chars": 27959
+    },
+    "/best-practices/skipping-subtrees": {
+      "title": "Skipping component subtrees",
+      "hash": "34007eb1738bf003",
+      "chars": 4842
+    },
+    "/best-practices/slow-computations": {
+      "title": "Slow computations",
+      "hash": "907f314652091f47",
+      "chars": 2487
+    },
+    "/best-practices/zone-pollution": {
+      "title": "Resolving zone pollution",
+      "hash": "927361ac39656cdb",
+      "chars": 5253
+    },
+    "/essentials": {
+      "title": "Essentials",
+      "hash": "ba8283cab9da3dd5",
+      "chars": 960
+    },
+    "/essentials/components": {
+      "title": "Components",
+      "hash": "24ce4b63908e18e1",
+      "chars": 3110
+    },
+    "/essentials/dependency-injection": {
+      "title": "Dependency Injection",
+      "hash": "2130766b96ceb118",
+      "chars": 1671
+    },
+    "/essentials/next-steps": {
+      "title": "Next Steps",
+      "hash": "8ffbdaf7900dcee2",
+      "chars": 598
+    },
+    "/essentials/signal-forms": {
+      "title": "Forms with signals",
+      "hash": "4e780fb4b69bde24",
+      "chars": 11227
+    },
+    "/essentials/signals": {
+      "title": "Signals",
+      "hash": "6017787249c17f07",
+      "chars": 2258
+    },
+    "/essentials/templates": {
+      "title": "Templates",
+      "hash": "b490eaad42856bd5",
+      "chars": 3651
+    },
+    "/guide/components": {
+      "title": "Anatomy of a component",
+      "hash": "0b1d01e6e4c24ee8",
+      "chars": 3940
+    },
+    "/guide/components/advanced-configuration": {
+      "title": "Advanced component configuration",
+      "hash": "e73db3c9b497486c",
+      "chars": 1979
+    },
+    "/guide/components/anatomy-of-components": {
+      "title": "Redirecting",
+      "hash": "abcf5b52d2203e96",
+      "chars": 32
+    },
+    "/guide/components/content-projection": {
+      "title": "Content projection with ng-content",
+      "hash": "916c1ec494e94d61",
+      "chars": 7735
+    },
+    "/guide/components/dom-apis": {
+      "title": "Using DOM APIs",
+      "hash": "a6f25a9f4a953ccb",
+      "chars": 3109
+    },
+    "/guide/components/host-elements": {
+      "title": "Component host elements",
+      "hash": "fc60c4cfe68b0d98",
+      "chars": 4798
+    },
+    "/guide/components/importing": {
+      "title": "Redirecting",
+      "hash": "bb0eac83734e48dd",
+      "chars": 71
+    },
+    "/guide/components/inheritance": {
+      "title": "Inheritance",
+      "hash": "e44dc72379703d80",
+      "chars": 2779
+    },
+    "/guide/components/inputs": {
+      "title": "Accepting data with input properties",
+      "hash": "d8218bae97cffb12",
+      "chars": 12468
+    },
+    "/guide/components/lifecycle": {
+      "title": "Component Lifecycle",
+      "hash": "4efe0cf9ccbc1256",
+      "chars": 11165
+    },
+    "/guide/components/output-function": {
+      "title": "Redirecting",
+      "hash": "94d707dadb8c9ac5",
+      "chars": 40
+    },
+    "/guide/components/outputs": {
+      "title": "Custom events with outputs",
+      "hash": "078a71a9b4372c1d",
+      "chars": 5128
+    },
+    "/guide/components/programmatic-rendering": {
+      "title": "Programmatically rendering components",
+      "hash": "00e7b6dcb03273ba",
+      "chars": 11680
+    },
+    "/guide/components/queries": {
+      "title": "Referencing component children with queries",
+      "hash": "81cdde08e4bb055e",
+      "chars": 13498
+    },
+    "/guide/components/selectors": {
+      "title": "Component selectors",
+      "hash": "84c5456995b9f023",
+      "chars": 4678
+    },
+    "/guide/components/styling": {
+      "title": "Styling components",
+      "hash": "29fda57c4e099862",
+      "chars": 5862
+    },
+    "/guide/di": {
+      "title": "Dependency injection in Angular",
+      "hash": "3e3aa4835e8156ec",
+      "chars": 6026
+    },
+    "/guide/di/creating-and-using-services": {
+      "title": "Creating and using services",
+      "hash": "d9437ae419449aa8",
+      "chars": 5696
+    },
+    "/guide/di/creating-injectable-service": {
+      "title": "Redirecting",
+      "hash": "25b3279074148be9",
+      "chars": 52
+    },
+    "/guide/di/debugging-and-troubleshooting-di": {
+      "title": "Debugging and troubleshooting dependency injection",
+      "hash": "9d6ce7e8af166d04",
+      "chars": 29661
+    },
+    "/guide/di/defining-dependency-providers": {
+      "title": "Defining dependency providers",
+      "hash": "b17db41cd957a12f",
+      "chars": 25633
+    },
+    "/guide/di/dependency-injection": {
+      "title": "Redirecting",
+      "hash": "bcddc4b1bfb7b51c",
+      "chars": 24
+    },
+    "/guide/di/dependency-injection-context": {
+      "title": "Injection context",
+      "hash": "0485793d3aef73fe",
+      "chars": 3172
+    },
+    "/guide/di/dependency-injection-providers": {
+      "title": "Redirecting",
+      "hash": "a9815f1c30f11cdf",
+      "chars": 54
+    },
+    "/guide/di/di-in-action": {
+      "title": "DI in action",
+      "hash": "1bed25dc6d1431ed",
+      "chars": 2328
+    },
+    "/guide/di/hierarchical-dependency-injection": {
+      "title": "Hierarchical injectors",
+      "hash": "961f318ae1528751",
+      "chars": 39529
+    },
+    "/guide/di/lazy-loading-services": {
+      "title": "Lazy loading services",
+      "hash": "c211f83a969753bf",
+      "chars": 3243
+    },
+    "/guide/di/lightweight-injection-tokens": {
+      "title": "Optimizing client application size with lightweight injection tokens",
+      "hash": "58cee7a70ede8122",
+      "chars": 8494
+    },
+    "/guide/directives": {
+      "title": "Directives",
+      "hash": "6cda359246020e27",
+      "chars": 2384
+    },
+    "/guide/directives/attribute-directives": {
+      "title": "Attribute directives",
+      "hash": "c29f35338d995848",
+      "chars": 6021
+    },
+    "/guide/directives/directive-composition-api": {
+      "title": "Directive composition API",
+      "hash": "04d900efb8fb6f46",
+      "chars": 8817
+    },
+    "/guide/directives/structural-directives": {
+      "title": "Structural directives",
+      "hash": "c2887e3946292c4e",
+      "chars": 11121
+    },
+    "/guide/forms": {
+      "title": "Forms in Angular",
+      "hash": "8aa4d1a05ebdeeb5",
+      "chars": 16717
+    },
+    "/guide/forms/dynamic-forms": {
+      "title": "Building dynamic forms",
+      "hash": "5f991520be8a12c7",
+      "chars": 13465
+    },
+    "/guide/forms/form-validation": {
+      "title": "Validating form input",
+      "hash": "a6632839b2b477b8",
+      "chars": 25104
+    },
+    "/guide/forms/reactive-forms": {
+      "title": "Reactive forms",
+      "hash": "1348ad4c6ecdc09b",
+      "chars": 37311
+    },
+    "/guide/forms/signals/async-operations": {
+      "title": "Async operations",
+      "hash": "2f8ccb8249f4d7f7",
+      "chars": 25553
+    },
+    "/guide/forms/signals/comparison": {
+      "title": "Comparison with other form approaches",
+      "hash": "d8b23770e4e07f3a",
+      "chars": 9954
+    },
+    "/guide/forms/signals/cross-field-logic": {
+      "title": "Cross-field logic",
+      "hash": "dfa0ec57322f3f5e",
+      "chars": 9541
+    },
+    "/guide/forms/signals/custom-controls": {
+      "title": "Custom Controls",
+      "hash": "c0c55266e84c789a",
+      "chars": 16914
+    },
+    "/guide/forms/signals/dynamic-forms-with-json": {
+      "title": "Dynamic Forms with JSON",
+      "hash": "8a52f7fd1538b67d",
+      "chars": 18238
+    },
+    "/guide/forms/signals/field-metadata": {
+      "title": "Field metadata",
+      "hash": "1b116c48731d8a72",
+      "chars": 18348
+    },
+    "/guide/forms/signals/field-state-management": {
+      "title": "Field state management",
+      "hash": "1e23b9a37e7bdae1",
+      "chars": 27506
+    },
+    "/guide/forms/signals/form-logic": {
+      "title": "Adding form logic",
+      "hash": "d8645c62d0806751",
+      "chars": 19782
+    },
+    "/guide/forms/signals/form-submission": {
+      "title": "Form submission",
+      "hash": "d445ada755422d73",
+      "chars": 10641
+    },
+    "/guide/forms/signals/migration": {
+      "title": "Migrating existing forms to Signal Forms",
+      "hash": "9275a53b40bdb736",
+      "chars": 16980
+    },
+    "/guide/forms/signals/model-design": {
+      "title": "Designing your form model",
+      "hash": "4debbcf3585f7485",
+      "chars": 17467
+    },
+    "/guide/forms/signals/models": {
+      "title": "Form models",
+      "hash": "c86abeec12307af9",
+      "chars": 11596
+    },
+    "/guide/forms/signals/overview": {
+      "title": "Forms with Angular Signals",
+      "hash": "a9ee8139e0028794",
+      "chars": 1877
+    },
+    "/guide/forms/signals/schemas": {
+      "title": "Schemas and schema composability",
+      "hash": "704bc5aeeb1d6aab",
+      "chars": 9485
+    },
+    "/guide/forms/signals/testing": {
+      "title": "Testing Signal Forms",
+      "hash": "9d61351ff6e1ebbb",
+      "chars": 9081
+    },
+    "/guide/forms/signals/validation": {
+      "title": "Validation",
+      "hash": "3db282a2934ecedc",
+      "chars": 26740
+    },
+    "/guide/forms/template-driven-forms": {
+      "title": "Building a template-driven form",
+      "hash": "f08a4b97b68f7e99",
+      "chars": 24732
+    },
+    "/guide/forms/typed-forms": {
+      "title": "Typed Forms",
+      "hash": "a206073dca65b261",
+      "chars": 7250
+    },
+    "/guide/http": {
+      "title": "Understanding communication with backend services using HTTP",
+      "hash": "9f77e2050456443b",
+      "chars": 561
+    },
+    "/guide/http/http-resource": {
+      "title": "Reactive data fetching with httpResource",
+      "hash": "54835a00c1b4ac36",
+      "chars": 4490
+    },
+    "/guide/http/interceptors": {
+      "title": "Interceptors",
+      "hash": "e657aa748c2379ea",
+      "chars": 11494
+    },
+    "/guide/http/making-requests": {
+      "title": "Making HTTP requests",
+      "hash": "bda9142cfb4a7474",
+      "chars": 23893
+    },
+    "/guide/http/setup": {
+      "title": "Setting up HttpClient",
+      "hash": "2685aefcd564106e",
+      "chars": 4849
+    },
+    "/guide/http/testing": {
+      "title": "Test requests",
+      "hash": "a81bbdeb6a172e3f",
+      "chars": 7796
+    },
+    "/guide/pipes": {
+      "title": "Redirecting",
+      "hash": "838ba60058eb2e3b",
+      "chars": 37
+    },
+    "/guide/routing": {
+      "title": "Angular Routing",
+      "hash": "683abd5d15e07759",
+      "chars": 1702
+    },
+    "/guide/routing/common-router-tasks": {
+      "title": "Other common Routing Tasks",
+      "hash": "a8a7a10ab0759fa2",
+      "chars": 8440
+    },
+    "/guide/routing/customizing-route-behavior": {
+      "title": "Customizing route behavior",
+      "hash": "9eac4f3a0315c880",
+      "chars": 26119
+    },
+    "/guide/routing/data-resolvers": {
+      "title": "Data resolvers",
+      "hash": "cba4874e82ae226c",
+      "chars": 10718
+    },
+    "/guide/routing/define-routes": {
+      "title": "Define routes",
+      "hash": "181c760180541917",
+      "chars": 11153
+    },
+    "/guide/routing/lifecycle-and-events": {
+      "title": "Router Lifecycle and Events",
+      "hash": "7624c9db847b6065",
+      "chars": 8139
+    },
+    "/guide/routing/loading-strategies": {
+      "title": "Route Loading Strategies",
+      "hash": "256a63323357f456",
+      "chars": 4127
+    },
+    "/guide/routing/navigate-to-routes": {
+      "title": "Navigate to routes",
+      "hash": "decc7c7065fb24a6",
+      "chars": 8322
+    },
+    "/guide/routing/read-route-state": {
+      "title": "Read route state",
+      "hash": "062e2cb02be02f20",
+      "chars": 10569
+    },
+    "/guide/routing/redirecting-routes": {
+      "title": "Redirecting Routes",
+      "hash": "159d0994fca7bce0",
+      "chars": 4897
+    },
+    "/guide/routing/rendering-strategies": {
+      "title": "Rendering strategies in Angular",
+      "hash": "e1dae0f21f510867",
+      "chars": 4477
+    },
+    "/guide/routing/route-guards": {
+      "title": "Control route access with guards",
+      "hash": "028ee9d9e5be4dd2",
+      "chars": 7519
+    },
+    "/guide/routing/route-transition-animations": {
+      "title": "Route transition animations",
+      "hash": "0981eac2cdc62097",
+      "chars": 7593
+    },
+    "/guide/routing/router-reference": {
+      "title": "Router reference",
+      "hash": "c6522caee6021b60",
+      "chars": 6675
+    },
+    "/guide/routing/routing-with-urlmatcher": {
+      "title": "Creating custom route matches",
+      "hash": "86682a696b64085e",
+      "chars": 4358
+    },
+    "/guide/routing/show-routes-with-outlets": {
+      "title": "Show routes with outlets",
+      "hash": "45a50b02ed0b0406",
+      "chars": 5545
+    },
+    "/guide/routing/testing": {
+      "title": "Testing routing and navigation",
+      "hash": "cf290911cae7c942",
+      "chars": 10670
+    },
+    "/guide/signals": {
+      "title": "Angular Signals",
+      "hash": "972870f1cdc4d331",
+      "chars": 10316
+    },
+    "/guide/signals/debounced": {
+      "title": "Debouncing signals with debounced",
+      "hash": "e859db1af5819c1b",
+      "chars": 2820
+    },
+    "/guide/signals/effect": {
+      "title": "Side effects for non-reactives APIs • Angular",
+      "hash": "8e5610e96c7678af",
+      "chars": 8538
+    },
+    "/guide/signals/inputs": {
+      "title": "Redirecting",
+      "hash": "21cd365b054191e2",
+      "chars": 39
+    },
+    "/guide/signals/linked-signal": {
+      "title": "Dependent state with linkedSignal",
+      "hash": "9b7d7b783b8749dd",
+      "chars": 7261
+    },
+    "/guide/signals/model": {
+      "title": "Redirecting",
+      "hash": "d42cc5076d0fa0e4",
+      "chars": 36
+    },
+    "/guide/signals/queries": {
+      "title": "Redirecting",
+      "hash": "e7044d23876b40e9",
+      "chars": 40
+    },
+    "/guide/signals/resource": {
+      "title": "Async reactivity with resources",
+      "hash": "a37655c2f2b038c2",
+      "chars": 11171
+    },
+    "/guide/signals/rxjs-interop": {
+      "title": "Redirecting",
+      "hash": "f1810385f4d4ea4e",
+      "chars": 38
+    },
+    "/guide/templates": {
+      "title": "Template syntax",
+      "hash": "3fe6b8e22aedf6af",
+      "chars": 2952
+    },
+    "/guide/templates/attribute-binding": {
+      "title": "Redirecting",
+      "hash": "c9f15c0ff007efcd",
+      "chars": 81
+    },
+    "/guide/templates/binding": {
+      "title": "Binding dynamic text, properties and attributes",
+      "hash": "4bfef173f18e61de",
+      "chars": 9007
+    },
+    "/guide/templates/class-binding": {
+      "title": "Redirecting",
+      "hash": "717419b4aa58e1ad",
+      "chars": 77
+    },
+    "/guide/templates/control-flow": {
+      "title": "Control flow",
+      "hash": "20ea6f8223f1bd99",
+      "chars": 6239
+    },
+    "/guide/templates/defer": {
+      "title": "Deferred loading with @defer",
+      "hash": "28912d9bbf0f12cc",
+      "chars": 16857
+    },
+    "/guide/templates/event-binding": {
+      "title": "Redirecting",
+      "hash": "c3ee6efd8dd3fea9",
+      "chars": 47
+    },
+    "/guide/templates/event-listeners": {
+      "title": "Adding event listeners",
+      "hash": "20514e6213bb1dd4",
+      "chars": 6093
+    },
+    "/guide/templates/expression-syntax": {
+      "title": "Expression Syntax",
+      "hash": "47951077befb64e2",
+      "chars": 4884
+    },
+    "/guide/templates/interpolation": {
+      "title": "Redirecting",
+      "hash": "b416bd5b2aa0397a",
+      "chars": 83
+    },
+    "/guide/templates/let-template-variables": {
+      "title": "Redirecting",
+      "hash": "026d4587bdcd0dee",
+      "chars": 75
+    },
+    "/guide/templates/ng-container": {
+      "title": "Grouping elements with ng-container",
+      "hash": "c43357314147f365",
+      "chars": 3435
+    },
+    "/guide/templates/ng-content": {
+      "title": "Render templates from a parent component with ng-content",
+      "hash": "c301f53286de4caa",
+      "chars": 839
+    },
+    "/guide/templates/ng-template": {
+      "title": "Create template fragments with ng-template",
+      "hash": "d5e202a8c023c771",
+      "chars": 10349
+    },
+    "/guide/templates/pipes": {
+      "title": "Pipes",
+      "hash": "ee753e4e3ee3012f",
+      "chars": 11890
+    },
+    "/guide/templates/property-binding": {
+      "title": "Redirecting",
+      "hash": "c9f15c0ff007efcd",
+      "chars": 81
+    },
+    "/guide/templates/property-binding-best-practices": {
+      "title": "Redirecting",
+      "hash": "c9f15c0ff007efcd",
+      "chars": 81
+    },
+    "/guide/templates/reference-variables": {
+      "title": "Redirecting",
+      "hash": "24d05502d56f4922",
+      "chars": 70
+    },
+    "/guide/templates/svg-in-templates": {
+      "title": "Redirecting",
+      "hash": "fe4de5dfb7bfdf1e",
+      "chars": 39
+    },
+    "/guide/templates/template-statements": {
+      "title": "Redirecting",
+      "hash": "c3ee6efd8dd3fea9",
+      "chars": 47
+    },
+    "/guide/templates/two-way-binding": {
+      "title": "Two-way binding",
+      "hash": "b73b8798171e5d91",
+      "chars": 3455
+    },
+    "/guide/templates/variables": {
+      "title": "Variables in templates",
+      "hash": "82d8d8c4e6a73903",
+      "chars": 7482
+    },
+    "/guide/templates/whitespace": {
+      "title": "Whitespace in templates",
+      "hash": "428b638842254bfe",
+      "chars": 2306
+    },
+    "/installation": {
+      "title": "Installation",
+      "hash": "c2caa6744648d6f9",
+      "chars": 2963
+    },
+    "/overview": {
+      "title": "What is Angular?",
+      "hash": "9c453da5029831ce",
+      "chars": 6553
+    },
+    "/style-guide": {
+      "title": "Angular coding style guide",
+      "hash": "0bcce0502e4d8599",
+      "chars": 11709
+    }
+  }
+}

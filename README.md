@@ -82,6 +82,35 @@ The docs corpus and vector store:
 - Roughly **1,136 passages** at 512 dimensions. Storing vectors as raw Float32 rather than JSON numbers keeps this at 2.3 MB; the same data as JSON would be around 45 MB and would need parsing on every server start.
 - `npm run test:unit` runs the offline suites: chunking, vector maths, prompt assembly and the citation guard.
 
+## Keeping the docs up to date
+
+The corpus is a snapshot, so it goes stale as Angular releases. Two commands:
+
+```bash
+npm run docs:check     # report only. No writes, no API calls, no cost
+npm run docs:update    # apply changes and re-embed ONLY what changed
+```
+
+`docs:check` prints the version you captured, what angular.dev serves now, which Angular releases have landed since, and exactly which pages differ - then stops. `docs:update` does the same work and applies it.
+
+Three signals are available, and they are good for different things:
+
+| Signal | Answers | Limitation |
+| --- | --- | --- |
+| Version, from angular.dev and the npm registry | *Might* anything have changed? | Says nothing about which pages |
+| `CHANGELOG.md`, grouped by package | What changed in the **framework** | Describes code, not prose. A `fix(compiler)` may touch no page, and a docs typo fix appears in no changelog. Its `docs` section is the one entry that does refer to prose |
+| Per-page content hash | Which pages **actually** changed | Requires fetching every page - which is free |
+
+The economics decide the design: **fetching pages costs nothing, embedding them costs money.** So every page is fetched and hashed on each run (cheap and exact), while the API budget is spent only on pages whose text genuinely moved. Version and changelog supply the narrative; hashes decide the work.
+
+The hash covers `contentText`, not `contentHtml`, because `contentText` is precisely what gets embedded. If Angular restructures its markup while the prose stays identical, the resulting vectors would be bit-for-bit the same, so re-embedding would be waste.
+
+Unchanged pages keep their existing vectors, copied straight across into the rebuilt store. A run that finds three changed pages embeds roughly 25 passages rather than all 1,136 - fractions of a cent instead of a full rebuild.
+
+`docs/angular/manifest.json` records the captured version and a hash per page. It is what makes the comparison possible, so it is committed alongside the pages.
+
+For a clean slate - a first run, or after widening `SECTION_ALLOWLIST` substantially - use `npm run download-docs` followed by `npm run build-embeddings` instead.
+
 Notes about the dev proxy and API:
 - The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:3000` during development.
 - The ChatService in the frontend uses relative URLs (e.g. `/api/chat`).
