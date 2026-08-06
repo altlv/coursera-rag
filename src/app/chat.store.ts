@@ -3,10 +3,27 @@ import {
   ChatService,
   type ChatConfidence,
   type ChatError,
+  type ChatHistoryTurn,
   type ChatRetrieved,
+  type ChatRewrite,
   type ChatStatus,
   type ProviderOption,
 } from './chat.service';
+
+/**
+ * Six turns, i.e. three exchanges.
+ *
+ * A deliberate choice rather than a placeholder: it covers the follow-ups this
+ * assistant actually receives - "explain that more simply", "show me an example",
+ * "are you sure?" - all of which refer to the immediately preceding answer.
+ *
+ * Older context is not lost, because query rewriting folds it into the standalone
+ * question. Passing the whole conversation instead would make every question
+ * steadily more expensive and eventually overflow the context window, to serve
+ * follow-up types a documentation assistant rarely sees. Keep in sync with
+ * HISTORY_EXCHANGES in server/rag.js.
+ */
+const HISTORY_TURNS = 6;
 
 export interface ChatMessageSource {
   title: string;
@@ -26,6 +43,8 @@ export interface ChatMessage {
   /** Retrieval trace, shown in the collapsible "how this was built" panel. */
   retrieved?: ChatRetrieved[];
   promptTokens?: number;
+  /** Set when the question was rewritten before searching, so the UI can show it. */
+  rewrite?: ChatRewrite | null;
   /**
    * Which model wrote this. Recorded PER MESSAGE, not just globally, because the
    * provider can be switched mid-conversation - so a single thread can contain
@@ -107,6 +126,30 @@ export class ChatStore {
     this.selectedProvider.set(name);
   }
 
+  /**
+   * The conversation as the server needs it.
+   *
+   * Trimmed to the last HISTORY_TURNS and stripped of UI-only fields. Each
+   * assistant turn carries the provider that wrote it - so a model reading a
+   * different model's answer is told as much rather than inheriting it - and the
+   * doc paths it cited, which is what the query rewriter uses.
+   *
+   * The seeded welcome message is excluded: it is UI furniture, not conversation,
+   * and would otherwise be the "earlier question" a first follow-up resolves
+   * against.
+   */
+  private historyForRequest(): ChatHistoryTurn[] {
+    return this.messages()
+      .filter((message) => !(message.role === 'assistant' && !message.status))
+      .slice(-HISTORY_TURNS)
+      .map((message) => ({
+        role: message.role,
+        text: message.text,
+        ...(message.provider ? { provider: message.provider } : {}),
+        ...(message.sources?.length ? { paths: message.sources.map((s) => s.path) } : {}),
+      }));
+  }
+
   /** Excludes the seeded welcome message, so the UI can tell "fresh" from "used". */
   readonly hasConversation = computed(
     () => this.messages().some((m) => m.role === 'user'),
@@ -138,7 +181,11 @@ export class ChatStore {
     this.isLoading.set(true);
 
     try {
-      const response = await this.chatService.ask(text, this.selectedProvider() ?? undefined);
+      const response = await this.chatService.ask(
+        text,
+        this.selectedProvider() ?? undefined,
+        this.historyForRequest(),
+      );
       this.messages.update((list) => [
         ...list,
         {
@@ -146,6 +193,7 @@ export class ChatStore {
           text: response.answer,
           status: response.status ?? 'answered',
           confidence: response.confidence,
+          rewrite: response.rewrite,
           retrieved: response.retrieved,
           promptTokens: response.usage?.prompt_tokens,
           provider: response.provider ?? undefined,

@@ -133,11 +133,26 @@ function normalizeVector(vector) {
   return out;
 }
 
-/** Sum of elementwise products. */
+/**
+ * Sum of elementwise products.
+ *
+ * Throws on a length mismatch rather than comparing the overlap. Vectors of
+ * different dimensionality come from different embedding spaces, and a similarity
+ * between them is meaningless - but it still returns a number in [-1, 1] that
+ * looks entirely plausible. Silently scoring the first N dimensions of two
+ * unrelated spaces is the worst possible outcome: confidently wrong, with nothing
+ * to indicate it.
+ */
 function dotProduct(a, b) {
+  if (a.length !== b.length) {
+    throw new Error(
+      `Cannot compare vectors of different dimensions (${a.length} vs ${b.length}). ` +
+        `They come from different embedding spaces - rebuild with npm run build-embeddings.`,
+    );
+  }
+
   let total = 0;
-  const length = Math.min(a.length, b.length);
-  for (let i = 0; i < length; i += 1) total += a[i] * b[i];
+  for (let i = 0; i < a.length; i += 1) total += a[i] * b[i];
   return total;
 }
 
@@ -348,50 +363,217 @@ function fuseRankings(rankings, { rrfK = 60 } = {}) {
  * lower floor for the lexical pool, and a way to stop it undermining refusals.
  */
 function selectChunksHybrid(queryVector, query, store, options = {}) {
+  return selectChunksMultiQuery([{ vector: queryVector, text: query, label: '' }], store, options);
+}
+
+/**
+ * Retrieve using several formulations of the same question at once.
+ *
+ * Why more than one: query rewriting turns "how do I test it?" into "how do I
+ * test reactive forms?", which is a large improvement - but it is NOT reliably
+ * better. Measured on this corpus:
+ *
+ *   "how do I test it?"        as typed -> /guide/http/testing (wrong)
+ *                              rewritten -> /guide/forms/* (better)
+ *   "what about validation?"   as typed -> /guide/forms/form-validation (rank 1!)
+ *                              rewritten -> dropped out of the top 3 (worse)
+ *
+ * The second case is the trap: "validation" is already a distinctive term, and
+ * adding "reactive forms" context diluted the embedding toward generic forms
+ * pages. No heuristic reliably predicts which formulation will win.
+ *
+ * So do not choose. Rank both and fuse, exactly as vector and keyword rankings
+ * are fused - the machinery already exists. A passage that both formulations like
+ * rises; one that only the better formulation finds still gets in. The cost is one
+ * extra embedding call, which is fractions of a cent.
+ *
+ * `queries`: [{ vector, text, label }]. A chunk qualifies if it clears the floor
+ * for AT LEAST ONE formulation, and reports its best similarity across them.
+ */
+function selectChunksMultiQuery(queries, store, options = {}) {
   const { k = 5, floor = 0.25, maxPerPage = 2, rrfK = 60 } = options;
 
   if (!store || !store.chunks || store.chunks.length === 0) return [];
+  if (!queries || queries.length === 0) return [];
 
   const dims = store.dimensions;
+  const rankings = [];
+  const bestSimilarity = new Map();
 
-  // Vector ranking over everything above the floor.
-  const vectorScores = [];
-  for (let i = 0; i < store.chunks.length; i += 1) {
-    const offset = i * dims;
-    let score = 0;
-    for (let d = 0; d < dims; d += 1) score += queryVector[d] * store.vectors[offset + d];
-    if (score >= floor) vectorScores.push({ index: i, score });
+  for (const query of queries) {
+    const suffix = query.label ? `:${query.label}` : '';
+
+    const vectorScores = [];
+    for (let i = 0; i < store.chunks.length; i += 1) {
+      const offset = i * dims;
+      let score = 0;
+      for (let d = 0; d < dims; d += 1) score += query.vector[d] * store.vectors[offset + d];
+      if (score >= floor) {
+        vectorScores.push({ index: i, score });
+        const prior = bestSimilarity.get(i);
+        if (prior === undefined || score > prior) bestSimilarity.set(i, score);
+      }
+    }
+    if (vectorScores.length === 0) continue;
+
+    vectorScores.sort((a, b) => b.score - a.score);
+    vectorScores.label = `vector${suffix}`;
+    rankings.push(vectorScores);
+
+    // Keyword ranking over the SAME candidate set, so every fused result is
+    // guaranteed a real similarity score above the floor.
+    const candidates = vectorScores.map((v) => store.chunks[v.index]);
+    const lexicalRanking = rankLexical(query.text, candidates).map((entry) => ({
+      index: vectorScores[entry.index].index,
+      score: entry.score,
+    }));
+    lexicalRanking.label = `lexical${suffix}`;
+    rankings.push(lexicalRanking);
   }
-  vectorScores.sort((a, b) => b.score - a.score);
 
-  // Nothing semantically close: refuse, and do not let keywords rescue it.
-  if (vectorScores.length === 0) return [];
+  // Nothing semantically close under any formulation: refuse, and do not let
+  // keywords rescue it. This is what keeps a refusal free.
+  if (rankings.length === 0) return [];
 
-  const vectorRanking = vectorScores;
-  vectorRanking.label = 'vector';
-
-  // Lexical ranking over the SAME candidate set, so every fused result is
-  // guaranteed to have a real similarity score above the floor.
-  const candidates = vectorScores.map((v) => store.chunks[v.index]);
-  const lexicalRanking = rankLexical(query, candidates).map((entry) => ({
-    index: vectorScores[entry.index].index,
-    score: entry.score,
-  }));
-  lexicalRanking.label = 'lexical';
-
-  const similarityByIndex = new Map(vectorScores.map((v) => [v.index, v.score]));
-  const fused = fuseRankings([vectorRanking, lexicalRanking], { rrfK });
+  const fused = fuseRankings(rankings, { rrfK });
 
   const results = fused.map((entry) => ({
     ...store.chunks[entry.index],
-    // `score` stays the cosine similarity so the floor, the golden set and every
-    // threshold keep meaning the same thing. Fusion score is reported separately.
-    score: similarityByIndex.get(entry.index) ?? 0,
+    // `score` stays a cosine similarity so the floor, the golden set and every
+    // threshold keep meaning the same thing. Fusion score is separate.
+    score: bestSimilarity.get(entry.index) ?? 0,
     fusedScore: entry.score,
     ranks: entry.ranks,
   }));
 
   return capPerPage(results, k, maxPerPage);
+}
+
+// ---------------------------------------------------------------------------
+// Working memory
+// ---------------------------------------------------------------------------
+
+/*
+ * How many past exchanges reach the answer prompt.
+ *
+ * Three (about six turns) is a DELIBERATE choice, not a placeholder. It is enough
+ * for the follow-ups this assistant actually receives - "explain that more
+ * simply", "show me an example", "are you sure?" - all of which refer to the
+ * immediately preceding answer.
+ *
+ * Older context is not lost: query rewriting folds it into the standalone
+ * question, so the topic survives even after the turn that introduced it has
+ * scrolled out of the window.
+ *
+ * The alternative of passing the whole conversation makes every question steadily
+ * more expensive and eventually overflows the context window, for follow-up types
+ * a documentation assistant rarely sees.
+ */
+const HISTORY_EXCHANGES = 3;
+
+/** Words that indicate a question leans on something already said. */
+const ANAPHORA = /\b(it|its|that|this|these|those|they|them|their|there|above|previous|instead)\b/i;
+const CONTINUATIONS =
+  /^\s*(what|how)\s+about\b|^\s*(and|or|but|also|then)\b|^\s*(why|why not)\s*\??$|^\s*(explain|simplify|shorten|expand|elaborate|continue|more|again|rephrase|summari[sz]e)\b/i;
+
+/**
+ * Does this question depend on the conversation to make sense?
+ *
+ * Rewriting is skipped when it does not, for two reasons: it saves a model call
+ * per question, and - more importantly - rewriting a already-clear question can
+ * make retrieval WORSE. Turning "what are signals?" into "what are Angular
+ * signals in the context of reactivity?" shifts the embedding and may retrieve
+ * different, worse passages. The cheapest way to avoid that regression is not to
+ * rewrite what does not need rewriting.
+ */
+function needsRewrite(question, history = []) {
+  if (!history.some((turn) => turn.role === 'user')) return false;
+
+  const text = (question || '').trim();
+  if (!text) return false;
+
+  if (CONTINUATIONS.test(text)) return true;
+  if (ANAPHORA.test(text)) return true;
+
+  // Very short questions rarely carry enough on their own to retrieve well.
+  return text.split(/\s+/).filter(Boolean).length <= 3;
+}
+
+const REWRITE_SYSTEM_PROMPT = `You rewrite a follow-up question into a standalone question about the Angular framework.
+
+Rules:
+- Use the earlier questions and documentation topics to resolve what the follow-up refers to.
+- Output ONLY the rewritten question. No preamble, no explanation, no quotes.
+- Keep it short and keep the user's intent. Do not answer it.
+- If the follow-up already stands alone, output it unchanged.`;
+
+/**
+ * Assemble the rewrite prompt from the user's OWN questions and the doc paths
+ * already retrieved - deliberately NOT from previous model answers.
+ *
+ * This is what makes retrieval independent of which model is active. If model
+ * prose fed the rewrite, then switching provider would change what gets
+ * retrieved, and the whole point of comparing providers on identical passages
+ * would be lost. Doc paths are facts about retrieval, not opinions of a model,
+ * so they are safe to include.
+ */
+function buildRewritePrompt(question, history = []) {
+  const questions = history
+    .filter((turn) => turn.role === 'user')
+    .slice(-HISTORY_EXCHANGES)
+    .map((turn, index) => `${index + 1}. ${turn.text}`);
+
+  const paths = [
+    ...new Set(
+      history
+        .filter((turn) => turn.role === 'assistant')
+        .flatMap((turn) => turn.paths || []),
+    ),
+  ].slice(-8);
+
+  const parts = [];
+  if (questions.length) parts.push(`Earlier questions:\n${questions.join('\n')}`);
+  if (paths.length) parts.push(`Documentation topics already consulted:\n${paths.join('\n')}`);
+  parts.push(`Follow-up question: ${question}`);
+
+  return { system: REWRITE_SYSTEM_PROMPT, user: parts.join('\n\n') };
+}
+
+/**
+ * Turn a dependent follow-up into a standalone question.
+ *
+ * `llm` is injected, and in production it is PINNED to one provider regardless of
+ * CHAT_PROVIDER - the same reasoning as embeddings. If the rewriter varied with
+ * the chat provider, retrieval would vary too.
+ */
+async function rewriteQuestion({ question, history = [], llm }) {
+  if (!needsRewrite(question, history)) {
+    return { question, rewritten: false, reason: 'question already stands alone' };
+  }
+
+  const raw = await llm.complete(buildRewritePrompt(question, history));
+
+  // Take the first line BEFORE stripping quotes: doing it the other way round
+  // leaves the closing quote attached when the model adds extra lines after it.
+  const cleaned = (raw || '')
+    .trim()
+    .split('\n')[0]
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .trim();
+
+  // Guard against a model that ignores the instruction and answers instead, or
+  // returns something implausibly long. Falling back to the original question is
+  // always safe; a bad rewrite is not.
+  if (!cleaned || cleaned.length > 300) {
+    return { question, rewritten: false, reason: 'rewrite rejected as implausible' };
+  }
+
+  if (cleaned.toLowerCase() === question.trim().toLowerCase()) {
+    return { question, rewritten: false, reason: 'rewrite matched the original' };
+  }
+
+  return { question: cleaned, original: question, rewritten: true, reason: 'follow-up resolved' };
 }
 
 // ---------------------------------------------------------------------------
@@ -432,15 +614,39 @@ const PARTIAL_ANSWER =
  * Numbering is 1-based and matches the order of `chunks`, which is what makes
  * the citation check in generateAnswer possible.
  */
-function buildPrompt(question, chunks) {
+function buildPrompt(question, chunks, { history = [], provider } = {}) {
   const context = chunks
     .map((chunk, index) => `[${index + 1}] ${chunk.title} (${chunk.path})\n${chunk.text}`)
     .join('\n\n---\n\n');
 
-  return {
-    system: SYSTEM_PROMPT,
-    user: `Context passages:\n\n${context}\n\n---\n\nQuestion: ${question}`,
-  };
+  const parts = [];
+
+  if (history.length) {
+    /*
+     * Answers written by a DIFFERENT model are labelled.
+     *
+     * Without this, model B reads model A's answer as its own previous turn and
+     * inherits it - defending a claim, or standing by a refusal, that it never
+     * made. Labelling lets it treat those as another assistant's statements and
+     * re-examine the passages on their merits.
+     */
+    const turns = history.slice(-HISTORY_EXCHANGES * 2).map((turn) => {
+      if (turn.role === 'user') return `User: ${turn.text}`;
+
+      const foreign = turn.provider && provider && turn.provider !== provider;
+      const label = foreign ? `Assistant (answered by ${turn.provider})` : 'Assistant';
+      return `${label}: ${turn.text}`;
+    });
+
+    parts.push(
+      `Conversation so far (for resolving references only - do not treat it as a source):\n${turns.join('\n')}`,
+    );
+  }
+
+  parts.push(`Context passages:\n\n${context}`);
+  parts.push(`---\n\nQuestion: ${question}`);
+
+  return { system: SYSTEM_PROMPT, user: parts.join('\n\n') };
 }
 
 /** Every distinct [n] referenced in the answer text. */
@@ -481,7 +687,7 @@ function extractCitations(answer) {
  *    [7] when given 4 passages is inventing a source, and an unchecked citation
  *    is worse than none because it looks verified.
  */
-async function generateAnswer({ question, chunks, llm }) {
+async function generateAnswer({ question, chunks, llm, history = [], provider }) {
   if (!chunks || chunks.length === 0) {
     return {
       status: 'refused',
@@ -492,7 +698,7 @@ async function generateAnswer({ question, chunks, llm }) {
     };
   }
 
-  const prompt = buildPrompt(question, chunks);
+  const prompt = buildPrompt(question, chunks, { history, provider: provider ?? llm?.provider });
   const raw = await llm.complete(prompt);
   const text = (raw || '').trim();
 
@@ -657,7 +863,12 @@ module.exports = {
   rankLexical,
   fuseRankings,
   selectChunksHybrid,
+  selectChunksMultiQuery,
   assessConfidence,
+  needsRewrite,
+  buildRewritePrompt,
+  rewriteQuestion,
+  HISTORY_EXCHANGES,
   buildPrompt,
   extractCitations,
   generateAnswer,

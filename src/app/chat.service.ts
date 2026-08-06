@@ -59,6 +59,7 @@ export interface ChatResponse {
   retrieved: ChatRetrieved[];
   status?: ChatStatus;
   confidence?: ChatConfidence;
+  rewrite?: ChatRewrite | null;
   /** Which model wrote this answer. */
   model?: string | null;
   provider?: string | null;
@@ -67,6 +68,26 @@ export interface ChatResponse {
   mode?: 'vector' | 'lexical';
   /** Token counts for the generation call, when one was made. */
   usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+}
+
+/**
+ * One turn of conversation, as sent to the server.
+ *
+ * `paths` carries the doc pages an answer cited. The rewriter uses those plus the
+ * user's own questions, and deliberately NOT the answer prose - so retrieval stays
+ * independent of which model is active.
+ */
+export interface ChatHistoryTurn {
+  role: 'user' | 'assistant';
+  text: string;
+  provider?: string;
+  paths?: string[];
+}
+
+/** Present only when a follow-up was rewritten before searching. */
+export interface ChatRewrite {
+  original: string;
+  rewritten: string;
 }
 
 /** Structured error body sent by /api/chat when generation fails. */
@@ -115,14 +136,22 @@ export class ChatService {
     return await response.json();
   }
 
-  async ask(question: string, provider?: string): Promise<ChatResponse> {
+  async ask(
+    question: string,
+    provider?: string,
+    history: ChatHistoryTurn[] = [],
+  ): Promise<ChatResponse> {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       // `provider` is optional; omitting it uses the server's CHAT_PROVIDER.
-      body: JSON.stringify(provider ? { question, provider } : { question }),
+      body: JSON.stringify({
+        question,
+        ...(provider ? { provider } : {}),
+        ...(history.length ? { history } : {}),
+      }),
     });
 
     if (!response.ok) {

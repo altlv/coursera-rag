@@ -221,9 +221,9 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Working memory: chain follow-up questions',
         detail:
-          'Today every question is embedded alone, so "what about effects?" has almost nothing retrievable in it and matches near-randomly. The fix is query rewriting - one cheap model call turns the follow-up into a standalone question using the history - plus passing the history into the answer prompt so pronouns resolve. Concatenating the history instead would dilute the embedding across several topics.',
-        status: 'todo',
-        where: 'server/rag.js, chat.store.ts',
+          'Follow-ups now resolve against the conversation. One cheap model call rewrites "how do I test it?" into a standalone question, built from the user\'s own questions and the doc paths already retrieved - never from model prose, so retrieval stays independent of which model is active. Rewriting turned out NOT to be reliably better ("what about validation?" retrieved the right page at rank 1 as typed and lost it once rewritten), so both formulations are searched and all rankings fused. Three exchanges of history reach the answer prompt, and answers from a different model are labelled so it does not inherit them.',
+        status: 'done',
+        where: 'server/rag.js rewriteQuestion(), selectChunksMultiQuery()',
       },
       {
         title: 'Documentation index',

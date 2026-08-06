@@ -85,6 +85,13 @@
               >
             }
           </p>
+          @if (message.rewrite) {
+            <!-- Shown only when the question was actually rewritten. Without this,
+                 a bad rewrite looks like an inexplicable retrieval failure. -->
+            <p class="bubble-rewrite" title="Your follow-up was resolved into a standalone question before searching">
+              searched for: <em>{{ message.rewrite.rewritten }}</em>
+            </p>
+          }
           <p class="bubble-text">{{ message.text }}</p>
 
           @if (message.sources?.length) {

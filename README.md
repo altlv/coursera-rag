@@ -94,6 +94,49 @@ Keyword scoring is applied only to passages that already cleared the similarity 
 | Vector only | 12/13 (92%) | 0.836 |
 | Hybrid + diversity cap | **13/13 (100%)** | **1.000** |
 
+## Working memory: follow-up questions
+
+Every question used to be embedded on its own, so *"what about effects?"* carried almost nothing searchable and matched near-randomly. Follow-ups now resolve against the conversation.
+
+**Query rewriting, not concatenation.** Appending the history to the question would produce a vector averaged across several topics that matches none of them well. Instead one cheap model call turns the follow-up into a standalone question:
+
+```
+user:    "what are reactive forms?"        → retrieved /guide/forms/reactive-forms
+user:    "how do I test it?"
+rewrite: "How do I test reactive forms in Angular?"
+```
+
+**The rewrite is built from the user's own questions plus the doc paths already retrieved — never from model prose.** That is what keeps retrieval independent of which model is active: if answer text fed the rewrite, switching provider would change what gets found, and comparing providers on identical passages would be meaningless. The rewriter is also **pinned to one provider** regardless of `CHAT_PROVIDER`, for the same reason embeddings are.
+
+### Rewriting is not reliably better — so both formulations are searched
+
+This was measured, and the result was mixed:
+
+| Follow-up | As typed | Rewritten only |
+| --- | --- | --- |
+| *"how do I test it?"* | `/guide/http/testing` — wrong subject | `/guide/forms/…` — better |
+| *"what about validation?"* | `/guide/forms/form-validation` at **rank 1** | dropped out of the top 3 — **worse** |
+
+The second case is the trap: "validation" is already distinctive, and adding "reactive forms" context diluted the embedding toward generic forms pages. No heuristic reliably predicts which formulation wins.
+
+So the system does not choose. **Both the original and the rewritten question are searched, and all four rankings — vector and keyword for each — are fused by RRF.** The machinery already existed. A passage both formulations like rises; one only the better formulation finds still gets in. Cost is one extra embedding call, fractions of a cent.
+
+Result: *"how do I test it?"* now retrieves `/guide/forms/signals/testing`, which **neither formulation found alone**. The `ranks` field in the trace shows each formulation's contribution, e.g. `{"vector:asked":15,"vector:rewritten":4}`.
+
+Rewriting is also skipped entirely when a question already stands alone — it saves a call and avoids the regression above. It fires only on anaphora ("it", "that"), continuations ("what about…"), reformulation requests ("explain more simply"), or very short questions. A rewrite that comes back empty, over-long, or unchanged falls back to the question as typed.
+
+### Three exchanges of history — a deliberate limit
+
+Generation receives the last **3 exchanges** (6 turns). This is a considered choice, not a default: it covers the follow-ups a documentation assistant actually gets — *"explain that more simply"*, *"show me an example"*, *"are you sure?"* — all of which refer to the immediately preceding answer. Older context is not lost, because rewriting folds it into the standalone question. Passing the whole conversation would make every question steadily more expensive and eventually overflow the context window, to serve follow-up types that rarely arise here.
+
+### Switching models mid-conversation
+
+History survives a switch, and **retrieval is unaffected** — the rewriter is pinned and never reads model prose.
+
+Answers written by a *different* model are **labelled** in the generation prompt. Without that, model B reads model A's answer as its own previous turn and inherits it: defending a claim, or standing by a refusal, that it never made. The history is also marked as context for resolving references only, not as a citable source, so a model cannot cite its own earlier prose as evidence.
+
+One interaction worth knowing: a passage's reported `score` is its best similarity across formulations, so follow-ups score slightly higher than first questions. Since confidence thresholds were calibrated on single-question scores, confidence skews a little optimistic on follow-ups.
+
 ## Answer confidence
 
 Each answer carries a `high` / `medium` / `low` badge. It is **not** the similarity score, and this repo has the measurement showing why that would mislead:
@@ -302,6 +345,6 @@ Developer notes / troubleshooting:
 - The proxy is now configured in `angular.json`, so `ng serve` will automatically use `proxy.conf.json` when run from the project root.
 
 Contact / authorship:
-- Prototype created with assistance from Copilot CLI runtime in VS Code.
+- Prototype created with assistance from Claude Code and Copilot CLI runtime in VS Code.
 
 License: MIT 

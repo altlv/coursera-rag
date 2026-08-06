@@ -364,6 +364,22 @@
   overflow: hidden;
 }
 
+/* "searched for: ..." - visible only when a follow-up was rewritten. */
+.bubble-rewrite {
+  margin: 0 0 var(--space-2);
+  padding: 0.15rem var(--space-2);
+  border-left: 2px solid var(--color-brand-ring);
+  font-size: 0.74rem;
+  color: var(--color-text-subtle);
+  cursor: help;
+}
+
+.bubble-rewrite em {
+  color: var(--color-text-muted);
+  font-style: normal;
+  font-weight: 600;
+}
+
 .bubble-text {
   margin: 0;
   font-size: 0.9rem;

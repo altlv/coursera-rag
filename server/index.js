@@ -6,9 +6,11 @@ const cors = require('@fastify/cors');
 const { OpenAI } = require('openai');
 const {
   normalizeVector,
-  selectChunksHybrid,
+  selectChunksMultiQuery,
   assessConfidence,
   generateAnswer,
+  rewriteQuestion,
+  HISTORY_EXCHANGES,
   REFUSAL,
 } = require('./rag');
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
@@ -266,12 +268,30 @@ async function embedQuery(text) {
  * term. Fusing by RANK rather than score is what makes them combinable at all -
  * cosine sits in ~0.25-0.65 while BM25 is unbounded.
  */
-async function searchVectors(query, limit = TOP_K) {
+/**
+ * @param {string[]} queries One or more formulations of the same question.
+ *
+ * When a follow-up was rewritten, BOTH the original and the rewritten form are
+ * searched and their rankings fused. Rewriting is a large improvement on some
+ * questions and a regression on others - "what about validation?" retrieves
+ * /guide/forms/form-validation at rank 1 as typed, and loses it once rewritten -
+ * and nothing reliably predicts which will win. Fusing both removes the need to
+ * guess, at the cost of one extra embedding call.
+ */
+async function searchVectors(queries, limit = TOP_K) {
   const store = await loadVectorStore();
   if (!store) return [];
 
-  const queryVector = await embedQuery(query);
-  return selectChunksHybrid(queryVector, query, store, {
+  const list = (Array.isArray(queries) ? queries : [queries]).filter(Boolean);
+  const embedded = await Promise.all(
+    list.map(async (text, index) => ({
+      text,
+      vector: await embedQuery(text),
+      label: index === 0 ? 'asked' : 'rewritten',
+    })),
+  );
+
+  return selectChunksMultiQuery(embedded, store, {
     k: limit,
     floor: SCORE_FLOOR,
     maxPerPage: MAX_PER_PAGE,
@@ -418,13 +438,47 @@ app.post('/api/chat', async (request, reply) => {
     return { error: 'question is required' };
   }
 
+  /*
+   * ---- Working memory ----------------------------------------------------
+   *
+   * A follow-up like "what about effects?" carries almost nothing searchable, so
+   * it is rewritten into a standalone question BEFORE retrieval.
+   *
+   * The rewriter is PINNED to one provider, deliberately independent of
+   * CHAT_PROVIDER - the same reasoning as embeddings. If it followed the chat
+   * provider, retrieval would change with the model, and comparing providers on
+   * identical passages would no longer be possible.
+   */
+  const history = Array.isArray(request.body?.history) ? request.body.history : [];
+  let searchQuestion = question;
+  let rewrite = null;
+
+  if (history.length && chatProvider.name) {
+    try {
+      const rewriter = createLlm({ provider: process.env.REWRITE_PROVIDER || 'openai' });
+      const result = await rewriteQuestion({ question, history, llm: rewriter });
+      searchQuestion = result.question;
+      if (result.rewritten) {
+        rewrite = { original: result.original, rewritten: result.question };
+        app.log.info(`Rewrote "${result.original}" -> "${result.question}"`);
+      }
+    } catch (error) {
+      // A failed rewrite must never block an answer: searching the raw question
+      // is worse than searching a resolved one, but far better than an error.
+      app.log.warn(`Query rewrite failed, using the question as typed: ${error.message}`);
+    }
+  }
+
   // ---- Stage 4: retrieve -------------------------------------------------
   let results = [];
   let mode = 'lexical';
 
   try {
     if (embeddingClient && (await loadVectorStore())) {
-      results = await searchVectors(question, TOP_K);
+      // Both formulations when a rewrite happened; just the one otherwise.
+      const formulations =
+        searchQuestion === question ? [question] : [question, searchQuestion];
+      results = await searchVectors(formulations, TOP_K);
       mode = 'vector';
     }
   } catch (error) {
@@ -432,7 +486,7 @@ app.post('/api/chat', async (request, reply) => {
   }
 
   if (!results.length && mode !== 'vector') {
-    results = await searchDocs(question, TOP_K);
+    results = await searchDocs(searchQuestion, TOP_K);
     mode = 'lexical';
   }
 
@@ -460,10 +514,14 @@ app.post('/api/chat', async (request, reply) => {
     llmInfo = { provider: llm.provider, providerLabel: llm.providerLabel, model: llm.model };
     try {
       const generated = await generateAnswer({
+        // The question AS TYPED, so the answer addresses what was actually asked.
+        // Only retrieval uses the rewritten form.
         question,
         // Lexical results carry `snippet`; vector results carry `text`.
         chunks: results.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
         llm,
+        history,
+        provider: llm.provider,
       });
       status = generated.status;
       answer = generated.answer;
@@ -513,6 +571,8 @@ app.post('/api/chat', async (request, reply) => {
 
   return {
     question,
+    /** Set only when the follow-up was rewritten, so the UI can show what was searched. */
+    rewrite,
     mode,
     status,
     model: llmInfo?.model ?? null,
