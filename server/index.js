@@ -4,8 +4,23 @@ const dotenv = require('dotenv');
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { OpenAI } = require('openai');
+const {
+  normalizeText,
+  normalizeVector,
+  selectChunks,
+  generateAnswer,
+  createOpenAiLlm,
+  REFUSAL,
+} = require('./rag');
 
 dotenv.config();
+
+// Retrieval tuning. Change these and re-run `npm run test:retrieval` to see the
+// effect on hit@3 / MRR rather than guessing.
+const TOP_K = 5;
+const SCORE_FLOOR = 0.25;
+const CHAT_MODEL = 'gpt-4o-mini';
+const EMBEDDING_MODEL = 'text-embedding-3-small';
 
 const app = Fastify({ logger: true });
 const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');
@@ -19,7 +34,16 @@ let docsStructure = null;
 let docsPages = null;
 let vectorStore = null;
 
-function normalizeText(value) {
+/*
+ * Lowercased, whitespace-flattened text for the LEXICAL fallback only.
+ *
+ * Note this is NOT rag.js's normalizeText: that one preserves paragraph breaks
+ * because chunking depends on them. Lexical matching wants the opposite - a
+ * single flat lowercase haystack for substring counting. The two used to share
+ * a name across two files while behaving differently, which is exactly how the
+ * chunking bug hid for so long.
+ */
+function normalizeForLexical(value) {
   return (value || '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
@@ -51,7 +75,7 @@ async function loadDocsPages() {
           title: page.title,
           path: page.path,
           url: page.url,
-          contentText: normalizeText(page.contentText),
+          contentText: normalizeForLexical(page.contentText),
           contentHtml: page.contentHtml,
         });
       }
@@ -62,61 +86,81 @@ async function loadDocsPages() {
   return docsPages;
 }
 
+/*
+ * Load the vector store into the flat layout selectChunks expects:
+ *
+ *   { model, dimensions, chunks: [metadata], vectors: Float32Array }
+ *
+ * All vectors live in ONE contiguous Float32Array, so chunk i occupies
+ * [i*dims, (i+1)*dims). One allocation instead of thousands of small arrays.
+ *
+ * Vectors are unit-normalised here, once, at load. That is what allows query
+ * time to be a plain dot product instead of a full cosine similarity.
+ */
 async function loadVectorStore() {
-  if (vectorStore) {
+  if (vectorStore !== null) {
     return vectorStore;
   }
 
   try {
-    const content = await fs.readFile(EMBEDDINGS_FILE, 'utf8');
-    vectorStore = JSON.parse(content);
+    const raw = JSON.parse(await fs.readFile(EMBEDDINGS_FILE, 'utf8'));
+    const sourceChunks = raw.chunks || [];
+    if (sourceChunks.length === 0) {
+      vectorStore = undefined;
+      return vectorStore;
+    }
+
+    const dimensions = sourceChunks[0].embedding.length;
+    const vectors = new Float32Array(sourceChunks.length * dimensions);
+    const chunks = [];
+
+    for (let i = 0; i < sourceChunks.length; i += 1) {
+      const chunk = sourceChunks[i];
+      vectors.set(normalizeVector(chunk.embedding), i * dimensions);
+      chunks.push({
+        id: chunk.id,
+        title: chunk.title,
+        path: chunk.path,
+        url: chunk.url,
+        text: chunk.text,
+      });
+    }
+
+    vectorStore = { model: raw.model, dimensions, chunks, vectors };
+    app.log.info(`Vector store loaded: ${chunks.length} chunks x ${dimensions} dims`);
   } catch (error) {
-    vectorStore = null;
+    app.log.warn(`No usable vector store (${error.message}); lexical search only.`);
+    vectorStore = undefined;
   }
+
   return vectorStore;
 }
 
-function cosineSimilarity(a, b) {
-  const dot = a.reduce((sum, value, index) => sum + value * b[index], 0);
-  const magA = Math.sqrt(a.reduce((sum, value) => sum + value * value, 0));
-  const magB = Math.sqrt(b.reduce((sum, value) => sum + value * value, 0));
-  if (magA === 0 || magB === 0) {
-    return 0;
-  }
-  return dot / (magA * magB);
-}
-
-async function embedText(text) {
+/** Embed a search query and unit-normalise it, ready for a dot product. */
+async function embedQuery(text) {
   if (!openai) {
     throw new Error('OpenAI API key missing. Set OPENAI_API_KEY to use vector search.');
   }
 
   const response = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
+    model: EMBEDDING_MODEL,
     input: text,
   });
 
-  if (!response.data || !Array.isArray(response.data) || !response.data[0]?.embedding) {
+  const embedding = response.data?.[0]?.embedding;
+  if (!embedding) {
     throw new Error('Invalid embedding response from OpenAI.');
   }
 
-  return response.data[0].embedding;
+  return normalizeVector(embedding);
 }
 
-async function searchVectors(query, limit = 4) {
+async function searchVectors(query, limit = TOP_K) {
   const store = await loadVectorStore();
-  if (!store || !store.chunks?.length) {
-    return [];
-  }
+  if (!store) return [];
 
-  const queryEmbedding = await embedText(query);
-  const scores = store.chunks.map((chunk) => ({
-    ...chunk,
-    score: cosineSimilarity(queryEmbedding, chunk.embedding),
-  }));
-
-  scores.sort((a, b) => b.score - a.score);
-  return scores.slice(0, limit);
+  const queryVector = await embedQuery(query);
+  return selectChunks(queryVector, store, { k: limit, floor: SCORE_FLOOR });
 }
 
 function buildSnippet(contentText, query) {
@@ -147,7 +191,7 @@ function buildSnippet(contentText, query) {
 
 async function searchDocs(query, limit = 5) {
   const pages = await loadDocsPages();
-  const normalizedQuery = normalizeText(query);
+  const normalizedQuery = normalizeForLexical(query);
   const queryTokens = normalizedQuery.split(/\s+/).filter(Boolean);
 
   if (!queryTokens.length) {
@@ -214,46 +258,84 @@ app.post('/api/chat', async (request, reply) => {
     return { error: 'question is required' };
   }
 
+  // ---- Stage 4: retrieve -------------------------------------------------
   let results = [];
-  let answer = '';
   let mode = 'lexical';
 
   try {
-    const store = await loadVectorStore();
-    if (store && openai) {
+    if (openai && (await loadVectorStore())) {
+      results = await searchVectors(question, TOP_K);
       mode = 'vector';
-      results = await searchVectors(question, 4);
-      answer = results.length
-        ? `I found ${results.length} relevant Angular docs chunks using vector search. The most relevant chunk comes from "${results[0].title}".`
-        : 'I did not find a matching document chunk in the local Angular docs vector store yet.';
     }
   } catch (error) {
-    app.log.warn(`Vector search failed: ${error.message}`);
+    app.log.warn(`Vector search failed, falling back to lexical: ${error.message}`);
   }
 
-  if (!results.length) {
+  if (!results.length && mode !== 'vector') {
+    results = await searchDocs(question, TOP_K);
     mode = 'lexical';
-    results = await searchDocs(question, 4);
-    answer = results.length
-      ? `I found ${results.length} relevant Angular docs pages using lexical search. The most relevant page is "${results[0].title}".`
-      : 'I did not find a matching page in the local Angular docs corpus yet.';
+  }
+
+  // ---- Stage 5: generate -------------------------------------------------
+  // Without a key we cannot write an answer, so be explicit rather than
+  // pretending. Retrieval results are still returned so the UI stays useful.
+  let answer;
+  let citations = [];
+  let usage;
+
+  if (!openai) {
+    answer =
+      results.length > 0
+        ? 'OPENAI_API_KEY is not set, so I can only list the documentation pages that look relevant - I cannot write an answer yet. Set the key in .env and restart the backend.'
+        : REFUSAL;
+  } else {
+    const llm = createOpenAiLlm(openai, { model: CHAT_MODEL });
+    try {
+      const generated = await generateAnswer({
+        question,
+        // Lexical results carry `snippet`; vector results carry `text`.
+        chunks: results.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
+        llm,
+      });
+      answer = generated.answer;
+      citations = generated.citations;
+      usage = llm.lastUsage;
+
+      if (generated.droppedCitations?.length) {
+        app.log.warn(`Dropped hallucinated citations: ${generated.droppedCitations.join(', ')}`);
+      }
+    } catch (error) {
+      app.log.error(`Generation failed: ${error.message}`);
+      reply.status(502);
+      return { error: `Could not generate an answer: ${error.message}` };
+    }
   }
 
   return {
     question,
     mode,
+    model: openai ? CHAT_MODEL : null,
     answer,
+    citations,
+    usage,
     sources: results.map((result) => ({
       title: result.title,
       path: result.path,
       url: `/docs?path=${encodeURIComponent(result.path)}`,
       originalUrl: result.url,
     })),
-    retrieved: results.map((result) => ({ title: result.title, path: result.path, snippet: result.snippet || result.text || '' })),
+    retrieved: results.map((result) => ({
+      title: result.title,
+      path: result.path,
+      score: result.score,
+      snippet: (result.snippet || result.text || '').slice(0, 400),
+    })),
   };
 });
 
-const PORT = process.env.PORT || 5173;
+// 3000, not 5173: 5173 is Vite's default dev-server port and reads as a
+// frontend port in an Angular repo. Keep in sync with proxy.conf.json.
+const PORT = process.env.PORT || 3000;
 app.listen({ port: PORT, host: '0.0.0.0' }).then(() => {
   app.log.info(`Backend ready at http://localhost:${PORT}`);
 });
