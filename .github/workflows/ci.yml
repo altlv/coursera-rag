@@ -1,0 +1,65 @@
+name: CI
+
+# 159 tests existed with nothing running them on push, so every guard protected
+# only whoever remembered to run it locally.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Backend and pipeline suites: chunking, vector maths, prompt assembly,
+      # citation guard, provider resolution, failure classification, retry and
+      # working memory. All offline - no API key, no network.
+      - name: Pipeline tests
+        run: npm run test:unit
+
+      # Angular component tests.
+      - name: Component tests
+        run: npm test
+
+      # Fails the build on a real error; CSS budget warnings are configured not to
+      # error, so this catches type and template problems.
+      - name: Production build
+        run: npm run build
+
+      # Retrieval quality, measured against the golden set.
+      #
+      # IMPORTANT: the vector store is gitignored - it is a build artifact that
+      # needs an API key to produce - so on CI it is absent and this suite SKIPS.
+      # It reports the skip rather than failing, so a fresh clone can run the
+      # suite before spending anything.
+      #
+      # The consequence has to be stated plainly: a green CI does NOT mean hit@3
+      # was verified. A passing test that asserted nothing is exactly the kind of
+      # false confidence the rest of this project guards against, so the step
+      # below makes the skip visible instead of letting it hide in a checkmark.
+      #
+      # To have CI genuinely enforce retrieval quality, either commit
+      # docs/angular/{chunks.json,vectors.bin} (~3.6 MB) or add an API key secret
+      # and build them here - which costs about a cent per run.
+      - name: Retrieval golden set
+        run: npm run test:retrieval
+
+      - name: Report whether retrieval was actually measured
+        if: always()
+        run: |
+          if [ -f docs/angular/vectors.bin ]; then
+            echo "::notice title=Retrieval::Golden set ran against a real vector store."
+          else
+            echo "::warning title=Retrieval not verified::No vector store in CI, so the golden set skipped its assertions. hit@3 was NOT checked by this run."
+          fi

@@ -23,6 +23,7 @@
  */
 
 const { OpenAI } = require('openai');
+const { classifyProviderError } = require('./provider-health');
 
 /*
  * Every provider here speaks the OpenAI chat-completions protocol, so one SDK
@@ -115,6 +116,21 @@ const PROVIDERS = {
 
 const DEFAULT_PROVIDER = 'openai';
 
+/*
+ * Bounds on a single generation call.
+ *
+ * Without a timeout a hung provider hangs the whole request indefinitely - there
+ * is no upstream deadline to save us. 30 seconds is generous for a ~1,300-token
+ * prompt while still failing fast enough to retry inside a request.
+ *
+ * Retries apply only to TRANSIENT failures, which provider-health already
+ * classifies. Retrying a permanent failure (no credits, revoked key) just burns
+ * time to reach the same conclusion, so those fail immediately.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_ATTEMPTS = 3;
+const BASE_BACKOFF_MS = 500;
+
 /**
  * Provider names usable right now.
  *
@@ -177,18 +193,34 @@ function resolveProvider(requested, env = process.env) {
  * That narrow shape is what keeps generateAnswer testable with a fake and
  * provider-agnostic at the same time.
  */
-function createLlm({ provider, model, temperature = 0.2, env = process.env } = {}) {
+function createLlm({
+  provider,
+  model,
+  temperature = 0.2,
+  env = process.env,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+  maxAttempts = MAX_ATTEMPTS,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  /*
+   * Injectable transport, so tests can exercise the real retry and timeout logic
+   * against a scripted client. Without this the only way to test the loop would be
+   * to re-implement it in the test - which tests the copy, not the code.
+   */
+  client: injectedClient,
+} = {}) {
   const resolved = resolveProvider(provider, env);
   if (!resolved.name) {
     throw new Error(`Cannot create an LLM: ${resolved.reason}`);
   }
 
   const config = PROVIDERS[resolved.name];
-  const client = new OpenAI({
-    // Keyless providers still need a non-empty string to satisfy the SDK.
-    apiKey: config.keyless ? env[config.envKey] || 'ollama' : env[config.envKey],
-    baseURL: config.keyless ? env[config.envKey] || config.baseURL : config.baseURL,
-  });
+  const client =
+    injectedClient ||
+    new OpenAI({
+      // Keyless providers still need a non-empty string to satisfy the SDK.
+      apiKey: config.keyless ? env[config.envKey] || 'ollama' : env[config.envKey],
+      baseURL: config.keyless ? env[config.envKey] || config.baseURL : config.baseURL,
+    });
 
   const chatModel = resolveModel(resolved.name, model, env);
 
@@ -199,18 +231,48 @@ function createLlm({ provider, model, temperature = 0.2, env = process.env } = {
     resolution: resolved,
     lastUsage: undefined,
 
-    async complete({ system, user }) {
-      const response = await client.chat.completions.create({
-        model: chatModel,
-        temperature,
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user },
-        ],
-      });
+    /** Attempts actually made on the last call, for logging and tests. */
+    lastAttempts: 0,
 
-      this.lastUsage = response.usage;
-      return response.choices?.[0]?.message?.content || '';
+    async complete({ system, user }) {
+      const messages = [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ];
+
+      let lastError;
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        this.lastAttempts = attempt;
+
+        try {
+          const response = await client.chat.completions.create(
+            { model: chatModel, temperature, messages },
+            // The SDK converts this into an abort, so a hung provider cannot
+            // hold the request open indefinitely.
+            { timeout: timeoutMs },
+          );
+
+          this.lastUsage = response.usage;
+          return response.choices?.[0]?.message?.content || '';
+        } catch (error) {
+          lastError = error;
+
+          /*
+           * Only retry what can actually succeed on a second try. A permanent
+           * failure - no credits, revoked key, nonexistent model - will fail
+           * identically three times, so retrying only delays the error.
+           */
+          const { permanent } = classifyProviderError(error);
+          if (permanent || attempt === maxAttempts) throw error;
+
+          // Exponential backoff: 500ms, then 1000ms. Deliberately no jitter -
+          // this is a single-user prototype, not a fleet stampeding one endpoint.
+          await sleep(BASE_BACKOFF_MS * 2 ** (attempt - 1));
+        }
+      }
+
+      throw lastError;
     },
   };
 }
@@ -250,6 +312,8 @@ function createEmbedder({ provider = DEFAULT_PROVIDER, env = process.env } = {})
 module.exports = {
   PROVIDERS,
   DEFAULT_PROVIDER,
+  REQUEST_TIMEOUT_MS,
+  MAX_ATTEMPTS,
   listAvailable,
   resolveModel,
   resolveProvider,

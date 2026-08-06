@@ -244,13 +244,6 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'scripts/compare-providers.js, scripts/list-models.js',
       },
       {
-        title: 'Retry transient failures with backoff',
-        detail:
-          'Health already knows which failures are transient, and currently does nothing with that knowledge - a single 429 fails a request that one retry would have satisfied.',
-        status: 'todo',
-        where: 'server/llm-providers.js',
-      },
-      {
         title: 'Resolve the Gemini model naming question',
         detail:
           'Both the bare name and the "models/" prefix returned 429, so quota masked which form the OpenAI-compatibility layer wants. Blocked until the free-tier limit resets.',
@@ -272,17 +265,17 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'server/rag.js, server/index.js, test/retrieval.test.mjs',
       },
       {
-        title: 'Timeout on model calls',
+        title: 'Timeout and selective retry',
         detail:
-          'Nothing bounds how long a provider may take, so a hung request hangs the whole question. The most likely of these gaps to actually bite.',
-        status: 'todo',
+          '30-second deadline per model call, and up to 3 attempts with exponential backoff. Retry reuses the permanent/transient classification, so a 429 is retried while no-credits or a revoked key fails on the first attempt rather than making the user wait through backoff to reach the same error. Tested against the real loop via an injectable client.',
+        status: 'done',
         where: 'server/llm-providers.js',
       },
       {
-        title: 'Cap question length',
+        title: 'Bound client-supplied input',
         detail:
-          '/api/chat checks only that a question is a non-empty string, so a 50,000-character question goes straight into the prompt - a cost and context blowout with no guard.',
-        status: 'todo',
+          'Questions capped at 2,000 characters and history bounded server-side. /api/chat previously checked only for a non-empty string, so a 50,000-character body went straight into an embedding call and the prompt. History is client-supplied too, so the frontend limit is re-enforced on arrival rather than trusted.',
+        status: 'done',
         where: 'server/index.js',
       },
       {
@@ -361,8 +354,9 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Continuous integration',
         detail:
-          '148 tests exist and nothing runs them on push, so every guard protects only whoever remembers to run it.',
-        status: 'todo',
+          'Runs the pipeline suites, component tests, a production build and the golden set on every push. One caveat made explicit rather than hidden: the vector store is gitignored because building it needs a key, so on CI the golden set skips its assertions - the workflow emits a warning saying retrieval was NOT measured, since a passing test that asserted nothing is the false confidence this project guards against everywhere else.',
+        status: 'done',
+        where: '.github/workflows/ci.yml',
       },
       {
         title: 'Log questions for analysis',

@@ -28,6 +28,11 @@ const SCORE_FLOOR = 0.25;
  * duplicates, and adjacent chunks overlap by 150 characters anyway.
  */
 const MAX_PER_PAGE = 2;
+/** A genuine question about Angular fits well inside this; longer is a paste or abuse. */
+const MAX_QUESTION_CHARS = 2000;
+/** History is client-supplied, so it is bounded server-side too. */
+const MAX_HISTORY_TURNS = HISTORY_EXCHANGES * 2;
+const MAX_HISTORY_TURN_CHARS = 4000;
 /*
  * Which model writes the answers is resolved per request from CHAT_PROVIDER, so
  * switching providers needs only a restart - not a code change and not a rebuild
@@ -439,6 +444,21 @@ app.post('/api/chat', async (request, reply) => {
   }
 
   /*
+   * Reject an over-long question rather than embedding it.
+   *
+   * Only a non-empty string was checked before, so a 50,000-character body went
+   * straight into an embedding call and then into the prompt - a cost and context
+   * blowout with nothing to stop it. A real question about Angular does not need
+   * 2,000 characters, and anything longer is either a paste accident or abuse.
+   */
+  if (question.length > MAX_QUESTION_CHARS) {
+    reply.status(413);
+    return {
+      error: `Question is too long (${question.length} characters, limit ${MAX_QUESTION_CHARS}). Ask something shorter.`,
+    };
+  }
+
+  /*
    * ---- Working memory ----------------------------------------------------
    *
    * A follow-up like "what about effects?" carries almost nothing searchable, so
@@ -449,7 +469,23 @@ app.post('/api/chat', async (request, reply) => {
    * provider, retrieval would change with the model, and comparing providers on
    * identical passages would no longer be possible.
    */
-  const history = Array.isArray(request.body?.history) ? request.body.history : [];
+  /*
+   * History arrives from the client, so it is bounded here rather than trusted.
+   * The frontend already sends only the last 3 exchanges, but a request can claim
+   * anything - and an unbounded history is the same prompt-blowout risk as an
+   * unbounded question, just via a different field.
+   */
+  const history = (Array.isArray(request.body?.history) ? request.body.history : [])
+    .filter((turn) => turn && typeof turn.text === 'string' && (turn.role === 'user' || turn.role === 'assistant'))
+    .slice(-MAX_HISTORY_TURNS)
+    .map((turn) => ({
+      role: turn.role,
+      text: turn.text.slice(0, MAX_HISTORY_TURN_CHARS),
+      ...(typeof turn.provider === 'string' ? { provider: turn.provider.slice(0, 40) } : {}),
+      ...(Array.isArray(turn.paths)
+        ? { paths: turn.paths.filter((p) => typeof p === 'string').slice(0, 10) }
+        : {}),
+    }));
   let searchQuestion = question;
   let rewrite = null;
 

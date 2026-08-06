@@ -308,18 +308,34 @@ A related failure worth knowing, which no guard here can catch: an embedding mod
 | Answers from another model are labelled | Model B inheriting model A's claims — defending an answer, or standing by a refusal, it never made |
 | Implausible rewrites fall back to the question as typed | A model that answers instead of rewriting poisoning retrieval |
 
-### Known gaps
+### Resilience
 
-Stated plainly rather than left implicit:
+| Guard | Prevents |
+| --- | --- |
+| 30-second timeout on every model call | A hung provider holding the request open indefinitely — there is no upstream deadline to fall back on |
+| Up to 3 attempts with exponential backoff | A single 429 failing a request that one retry would have satisfied |
+| **Permanent failures are not retried** | Wasting the user's time on backoff to reach the same error. No credits, revoked key and unknown model fail on the first attempt |
+| Question capped at 2,000 characters | A 50,000-character body going straight into an embedding call and the prompt |
+| History bounded server-side | The same blowout via a different field — history is client-supplied, so the frontend's 3-exchange limit is enforced again on arrival rather than trusted |
+
+Retry reuses the classification from `provider-health.js`, which is what makes it selective. Retrying everything, or nothing, would both be wrong.
+
+The retry loop is tested against the real code path — `createLlm` accepts an injectable client for exactly that reason. A test that re-implements the logic it checks only proves the copy works.
+
+### Continuous integration
+
+`.github/workflows/ci.yml` runs the pipeline suites, the Angular component tests, a production build, and the retrieval golden set on every push and PR.
+
+One caveat stated deliberately: **the vector store is gitignored**, since producing it needs an API key. So on CI it is absent and the golden set **skips its assertions** — a green build does *not* mean hit@3 was verified. Rather than let that hide behind a checkmark, the workflow emits a warning annotation saying retrieval was not measured. To make CI genuinely enforce it, either commit `docs/angular/{chunks.json,vectors.bin}` (~3.6 MB) or add a key secret and build them in CI, at roughly a cent per run.
+
+### Remaining gaps
 
 | Gap | Risk |
 | --- | --- |
-| **No timeout on model calls** | A hung provider hangs the request indefinitely. Most likely to bite |
-| **No cap on question length** | `/api/chat` checks only for a non-empty string, so a 50,000-character question goes straight into the prompt |
-| **No retry on transient failures** | Failures *are* classified permanent vs transient, and that knowledge is then unused — a single 429 fails a request one retry would have satisfied |
-| **No CI** | 148 tests exist and nothing runs them on push, so every guard above protects only whoever remembers to run it |
 | **No spend ceiling or rate limiting** | Low risk locally, real once exposed |
-| **Contradiction blind spot** | Passages are selected for similarity, never for agreeing with each other. Version drift or a deprecated API beside its replacement can put conflicting claims in one prompt, and a model faithfully reproduces both. The citation guard catches *invented* sources and is blind to *conflicting* ones |
+| **Contradiction blind spot** | Passages are selected for similarity, never for agreeing with each other. Version drift, or a deprecated API beside its replacement, can put conflicting claims in one prompt — and a model faithfully reproduces both. The citation guard catches *invented* sources and is blind to *conflicting* ones |
+| **No question logging** | No record of what is actually asked, so the golden set stays fifteen guesses |
+| **Confidence is provider-dependent** | See the limitation noted above |
 
 Live status for all of these is on the Overview page, from `src/app/roadmap.data.ts`.
 
