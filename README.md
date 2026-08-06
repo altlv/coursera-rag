@@ -34,21 +34,38 @@ copy .env.sample .env
 npm run build-embeddings
 ```
 
-4. Start the backend server (Fastify)
+5. Start the backend server (Fastify)
 
 ```bash
 npm run start-backend
-# runs the backend on http://localhost:5173
+# runs the backend on http://localhost:3000
 ```
 
-5. Start the Angular dev server (with a proxy to backend)
+6. Start the Angular dev server (with a proxy to backend)
 
 ```bash
 npm start
 # runs the frontend on http://localhost:4200 and proxies /api to the backend
 ```
 
-6. Open the app at `http://localhost:4200` and go to the Chat page.
+7. Open the app at `http://localhost:4200`. The assistant is docked on the right and stays open as you browse.
+
+## Three questions worth trying
+
+These three cover the behaviours a RAG system has to get right. Ask them in the chat rail, in this order.
+
+| Ask this | Behaviour | What you should see |
+| --- | --- | --- |
+| `what is Angular?` | **Match** | A real, grounded answer with a citation. Top similarity around **0.65**, five passages retrieved, cites `[1]` from `/overview`. |
+| `got milk?` | **No match** | An honest refusal. **Zero** passages clear the similarity floor, so the language model is never called at all - the refusal is free and cannot be a guess. |
+| `what is CSS?` | **Partial match** | The interesting one. Two passages *just* squeak past the floor (**0.287** and **0.269**, against a floor of 0.25) from `/guide/tailwind` and `/best-practices/security` - they mention styling, so they are weakly related. But the model correctly replies *"The provided passages do not contain information about CSS"* and cites nothing. |
+
+Why the third case matters: there are **two independent defences** against confident nonsense, and it exercises the second one.
+
+1. The **similarity floor** in `selectChunks()` rejects passages that aren't close enough. This is what handles `got milk?`.
+2. The **grounding instruction** in the system prompt tells the model to answer only from the supplied passages and to say so when they don't cover the question. This is what handles `what is CSS?`, where retrieval was weakly positive but the content genuinely wasn't there.
+
+A system with only the first defence would answer `what is CSS?` from the model's own training data, sounding authoritative while citing two Angular pages that never mentioned CSS. Retrieval returning something is not the same as retrieval returning something *useful*, and the prompt has to assume it might not have.
 
 Environment configuration:
 - Copy `.env.sample` to `.env` and set `OPENAI_API_KEY` there.
@@ -60,7 +77,7 @@ Verifying the vector store:
 - Run `npm run test:unit` to verify the vector store file exists and contains valid numeric embeddings.
 
 Notes about the dev proxy and API:
-- The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:5173` during development.
+- The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:3000` during development.
 - The ChatService in the frontend uses relative URLs (e.g. `/api/chat`).
 
 What is implemented (prototype v0.1):
@@ -86,28 +103,23 @@ Planned next steps (RAG work):
 - Add broader tests and CI automation for backend, frontend, and vector workflows
 - Prepare deployment guidance for the frontend and backend
 
-Committing progress (recommended):
-- This repository was prepared as a working prototype. If you want to record progress in git:
+Committing progress:
+- Keep commits small and focused (e.g. `docs: add downloaded Angular pages`, `feat: fastify backend and lexical search`).
+- For a multi-line commit message, pass `-m` more than once rather than embedding `\n`. Shells do not expand `\n` inside `-m "..."`, so it lands in the message as the literal two characters — several commits in this repo's history show exactly that:
 
 ```bash
-# (only once)
-git init
-git add .
-git commit -m "v0.1-prototype: Angular docs RAG prototype\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
-git tag v0.1-prototype
+git commit -m "feat: short summary" -m "Longer explanation on its own paragraph."
 ```
-
-- After the initial commit, continue small, focused commits that describe progress (e.g., `docs: add downloaded Angular pages`, `feat: fastify backend and lexical search`).
 
 Developer notes / troubleshooting:
 - `/api/chat` should not return 404 when the backend is running and the frontend dev server is using the proxy. If you see `Cannot POST /api/chat`, verify:
-  - The backend is started with `npm run start-backend` and listening on `http://localhost:5173`
+  - The backend is started with `npm run start-backend` and listening on `http://localhost:3000`
   - The Angular app is started with `npm start` or `npx ng serve`, and the proxy config is loaded from `angular.json` / `proxy.conf.json`
   - The frontend request is sent to `/api/chat`, not directly to the Angular app build output.
-- To debug backend locally, run `npm run start-backend` and test `POST http://localhost:5173/api/chat` directly.
+- To debug backend locally, run `npm run start-backend` and test `POST http://localhost:3000/api/chat` directly.
 - The proxy is now configured in `angular.json`, so `ng serve` will automatically use `proxy.conf.json` when run from the project root.
 
 Contact / authorship:
 - Prototype created with assistance from Copilot CLI runtime in VS Code.
 
-License: MIT (choose a license if you plan to publish)
+License: MIT 

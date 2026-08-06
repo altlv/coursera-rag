@@ -1,138 +1,53 @@
-import { CommonModule } from '@angular/common';
-import { Component } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, computed, signal } from '@angular/core';
+import { ROADMAP, STATUS_LABEL, type TaskStatus } from './roadmap.data';
 
-interface ProgressTask {
-  title: string;
-  detail: string;
-  status: 'not started' | 'in progress' | 'done';
-}
+type Filter = 'remaining' | 'all';
 
+/**
+ * Overview page: current status, with the remaining work first.
+ *
+ * This used to hold 22 hardcoded tasks whose statuses were stale - several read
+ * "not started" for features that had already shipped - plus a status pill you
+ * could click to cycle it, which persisted nowhere and was lost on reload.
+ * Status now comes from roadmap.data.ts, so the page cannot disagree with the
+ * repository.
+ */
 @Component({
   standalone: true,
   selector: 'home-page',
-  imports: [CommonModule, RouterLink],
   templateUrl: './home.component.html',
   styleUrls: ['./home.component.css'],
 })
 export class HomeComponent {
-  protected readonly tasks: ProgressTask[] = [
-    {
-      title: 'Create introduction page',
-      detail: 'Explain the Angular wiki chatbot project and RAG workflow.',
-      status: 'done',
-    },
-    {
-      title: 'Build the chat interactions page',
-      detail: 'Add a separate page for asking questions and showing answers.',
-      status: 'done',
-    },
-    {
-      title: 'Implement chat UI and local conversation state',
-      detail: 'Wire the chat page to accept questions, render message history, and show sources.',
-      status: 'done',
-    },
-    {
-      title: 'Design and implement backend (Fastify)',
-      detail: 'Create a Fastify API that serves docs structure and exposes a /api/chat endpoint.',
-      status: 'done',
-    },
-    {
-      title: 'Download and store Angular docs locally',
-      detail: 'Scrape the docs sidebar and save per-page JSON under docs/angular/ (structure.json + page files).',
-      status: 'done',
-    },
-    {
-      title: 'Add local Angular docs user guide section',
-      detail: 'Create a third website section alongside Overview and Chat to browse the locally downloaded Angular documentation.',
-      status: 'not started',
-    },
-    {
-      title: 'Implement docs page viewer',
-      detail: 'Render downloaded Angular doc pages and HTML content in a dedicated frontend viewer.',
-      status: 'not started',
-    },
-    {
-      title: 'Add backend docs API for the site',
-      detail: 'Expose local docs page content and structure through backend endpoints for the frontend viewer.',
-      status: 'not started',
-    },
-    {
-      title: 'Link chat sources to docs browser',
-      detail: 'Make chat citations open the local docs viewer instead of only showing text paths.',
-      status: 'not started',
-    },
-    {
-      title: 'Display retrieved snippets with citations',
-      detail: 'Show selected doc snippets and source references in chat responses for clearer retrieval context.',
-      status: 'not started',
-    },
-    {
-      title: 'Implement basic retrieval search (lexical)',
-      detail: 'Simple lexical search over normalized text to return relevant pages and snippets.',
-      status: 'done',
-    },
-    {
-      title: 'Add frontend service to call backend',
-      detail: 'ChatService to POST questions to /api/chat and display responses in the UI.',
-      status: 'done',
-    },
-    {
-      title: 'Create dev scripts',
-      detail: 'npm scripts to download docs, start backend, and run the frontend.',
-      status: 'done',
-    },
-    {
-      title: 'Build embeddings & vector store (RAG)',
-      detail: 'Add the embedding builder and local vector store support for retrieval-augmented answers.',
-      status: 'done',
-    },
-    {
-      title: 'Add backend vector retrieval support',
-      detail: 'Load embeddings and use vector similarity search with a fallback to lexical search when needed.',
-      status: 'done',
-    },
-    {
-      title: 'Validate the vector store with unit tests',
-      detail: 'Add a vitest unit test to confirm embeddings.json exists and contains numeric vector data.',
-      status: 'done',
-    },
-    {
-      title: 'Integrate LLM prompt + RAG flow',
-      detail: 'Assemble prompt with retrieved chunks and call an LLM for final answer (with citations).',
-      status: 'not started',
-    },
-    {
-      title: 'Prompt engineering and citation formatting',
-      detail: 'Improve prompts to prefer citing exact doc snippets and return source references.',
-      status: 'not started',
-    },
-    {
-      title: 'Add unit/integration tests and CI',
-      detail: 'Tests for backend endpoints, chat service, and critical UI flows. Add CI (GitHub Actions).',
-      status: 'in progress',
-    },
-    {
-      title: 'Prepare deployment',
-      detail: 'Decide hosting for backend and frontend, containerize, and provide deployment steps.',
-      status: 'not started',
-    },
-    {
-      title: 'Write comprehensive README and developer guide',
-      detail: 'Document architecture, how to run the project, and next steps for RAG integration.',
-      status: 'done',
-    },
-    {
-      title: 'Commit progress and tag milestone',
-      detail: 'Create a git repo (if not present), commit the current working state, and tag v0.1-prototype.',
-      status: 'done',
-    },
-  ];
+  protected readonly statusLabel = STATUS_LABEL;
 
-  protected readonly statusStages: ProgressTask['status'][] = ['not started', 'in progress', 'done'];
+  /** Defaults to what's left, because that is the useful view. */
+  protected readonly filter = signal<Filter>('remaining');
 
-  protected cycleStatus(task: ProgressTask) {
-    const nextIndex = (this.statusStages.indexOf(task.status) + 1) % this.statusStages.length;
-    task.status = this.statusStages[nextIndex];
+  private readonly allTasks = ROADMAP.flatMap((phase) => phase.tasks);
+
+  protected readonly counts = computed(() => {
+    const total = this.allTasks.length;
+    const done = this.allTasks.filter((t) => t.status === 'done').length;
+    return { total, done, remaining: total - done, percent: Math.round((done / total) * 100) };
+  });
+
+  /** Phases with their tasks filtered; phases that end up empty are dropped. */
+  protected readonly phases = computed(() => {
+    const showAll = this.filter() === 'all';
+    return ROADMAP.map((phase) => ({
+      ...phase,
+      tasks: showAll ? phase.tasks : phase.tasks.filter((t) => t.status !== 'done'),
+      doneCount: phase.tasks.filter((t) => t.status === 'done').length,
+      totalCount: phase.tasks.length,
+    })).filter((phase) => phase.tasks.length > 0);
+  });
+
+  protected setFilter(next: Filter) {
+    this.filter.set(next);
+  }
+
+  protected statusClass(status: TaskStatus): string {
+    return status.replace(' ', '-');
   }
 }

@@ -1,19 +1,54 @@
-.docs-page {
-  display: flex;
-  gap: 1rem;
-  padding: 1.5rem;
+/*
+ * Two independently scrolling panes, sized against the height the shell hands
+ * down rather than against the viewport.
+ *
+ * The original rules used `max-height: calc(100vh - 2rem)` on both panes. That
+ * was already approximate, and once .app-main became a bounded scroll container
+ * it broke outright: panes a full viewport tall inside a parent that is a
+ * viewport MINUS the header meant nested scrollbars and content cut off at the
+ * bottom - the same failure as the chat composer.
+ */
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
 }
 
+.docs-page {
+  display: flex;
+  gap: var(--space-4);
+  height: 100%;
+  min-height: 0;
+}
+
+/*
+ * `flex: none` so the sidebar keeps its width. A plain `width` still allows a
+ * flex item to shrink, which squashed the tree when a page had wide content.
+ */
 .docs-sidebar {
+  flex: none;
   width: 280px;
-  max-height: calc(100vh - 2rem);
-  overflow: auto;
-  border-right: 1px solid rgba(0, 0, 0, 0.08);
-  padding-right: 1rem;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-right: 1px solid var(--color-border-strong);
+  padding-right: var(--space-4);
+  scrollbar-width: thin;
 }
 
 .docs-sidebar-header {
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
+}
+
+.docs-sidebar-header h2 {
+  margin: 0 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.docs-sidebar-header p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--color-text-subtle);
 }
 
 .docs-tree ul {
@@ -22,50 +57,143 @@
   padding: 0;
 }
 
-.docs-tree li {
-  margin-bottom: 0.5rem;
+.docs-tree ul ul {
+  padding-left: var(--space-4);
+  margin-top: var(--space-1);
 }
 
+.docs-tree li {
+  margin-bottom: var(--space-2);
+}
+
+/* This used to be #0b6efd - a second brand blue that had drifted from the
+   #2e72ff used everywhere else. Both now come from one token. */
 .docs-tree a {
-  color: #0b6efd;
+  color: var(--color-brand);
   text-decoration: none;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
 }
 
 .docs-tree a:hover {
   text-decoration: underline;
 }
 
+/*
+ * `min-width: 0` is the important one. A flex item defaults to `min-width: auto`,
+ * so it refuses to shrink below its content's intrinsic width - and the scraped
+ * Angular pages contain wide <pre> blocks and tables. Without this the whole
+ * page scrolls sideways instead of the code block scrolling inside itself.
+ */
 .docs-content {
   flex: 1;
-  overflow: auto;
-  max-height: calc(100vh - 2rem);
-  padding-left: 1rem;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: var(--space-2);
+  scrollbar-width: thin;
 }
 
 .docs-loading,
 .docs-error,
 .docs-empty {
-  padding: 1rem;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 0.5rem;
-  background: #fff;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.docs-error {
+  border-color: rgba(239, 68, 68, 0.32);
+  background: #fef2f2;
 }
 
 .docs-article {
-  background: #fff;
-  padding: 1rem;
-  border-radius: 0.75rem;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  background: var(--color-surface);
+  padding: var(--space-5);
+  border-radius: var(--radius-inner);
+  box-shadow: var(--shadow-card);
 }
 
 .docs-article h1 {
   margin-top: 0;
 }
 
+/*
+ * Containment for third-party markup.
+ *
+ * The article body is scraped angular.dev HTML injected via innerHTML, so its
+ * structure is not ours to control. These rules stop long code samples, wide
+ * tables and large images from breaking out of the layout.
+ */
+.docs-article :is(p, li, h1, h2, h3, h4) {
+  overflow-wrap: anywhere;
+}
+
+.docs-article :is(img, svg, video) {
+  max-width: 100%;
+  height: auto;
+}
+
+.docs-article pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-alt);
+}
+
+.docs-article code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
+}
+
+.docs-article table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
 .docs-footer {
-  margin-top: 1.5rem;
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
 .docs-footer a {
-  color: #0b6efd;
+  color: var(--color-brand);
+}
+
+/*
+ * Narrow screens: the shell hands scrolling back to the page, so these panes
+ * must stop trying to be their own scroll containers and just stack.
+ */
+@media (max-width: 900px) {
+  :host,
+  .docs-page {
+    height: auto;
+  }
+
+  .docs-page {
+    flex-direction: column;
+  }
+
+  .docs-sidebar {
+    flex: none;
+    width: 100%;
+    max-height: 320px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border-strong);
+    padding-right: 0;
+    padding-bottom: var(--space-4);
+  }
+
+  .docs-content {
+    overflow-y: visible;
+    padding-right: 0;
+  }
 }

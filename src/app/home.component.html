@@ -1,55 +1,123 @@
 <section class="hero">
-  <div class="hero-copy">
-    <p class="eyebrow">Hello world!</p>
-    <h1>Trial 1 - simple chatbot</h1>
-    <p class="hero-intro">
-      I am building an Angular documentation assistant with RAG.
-    </p>
-    <p>
-      This project is an Angular wiki assistant that will answer questions by
-      retrieving relevant Angular documentation and using a retrieval-augmented
-      generation workflow.
-    </p>
-  </div>
-</section>
-
-<div class="hero-actions">
-  <a class="primary-button" routerLink="/chat">Open the chatbot</a>
-</div>
-
-<section class="progress-card">
-  <div class="progress-header">
-    <div>
-      <p class="eyebrow">Project progress</p>
-      <h3>Current plan</h3>
-    </div>
-    <p class="progress-summary">Tap a status pill to move a task forward.</p>
-  </div>
-
-  <div class="task-list">
-    <article class="task-card" *ngFor="let task of tasks">
-      <div>
-        <h4>{{ task.title }}</h4>
-        <p>{{ task.detail }}</p>
-      </div>
-      <button
-        class="status-pill"
-        [ngClass]="task.status.replace(' ', '-')"
-        (click)="cycleStatus(task)"
-        type="button"
-      >
-        {{ task.status }}
-      </button>
-    </article>
-  </div>
-</section>
-
-<section class="why-section">
-  <h3>Why Fastify?</h3>
-  <p>
-    Fastify is a lightweight, high-performance framework that is easy to manage
-    for a small backend API. It has a clean plugin system, good TypeScript
-    support, and it is a strong choice for building the retrieval service that
-    will power the Angular docs chatbot.
+  <p class="eyebrow">Angular documentation assistant</p>
+  <h1>Ask questions about Angular, answered from the real docs</h1>
+  <p class="hero-intro">
+    A retrieval-augmented generation prototype. Questions are matched against a
+    local copy of the Angular documentation, and the most relevant passages are
+    handed to a language model that answers from them and cites what it used.
   </p>
+  <p class="hero-hint">The assistant is docked on the right. It stays with you as you browse.</p>
+</section>
+
+<section class="pipeline">
+  <h2 class="section-title">How it works</h2>
+  <ol class="pipeline-steps">
+    <li>
+      <span class="step-index">1</span>
+      <div>
+        <h3>Scrape</h3>
+        <p>Angular docs pages are downloaded to local JSON.</p>
+        <code>scripts/fetch-angular-docs.js</code>
+      </div>
+    </li>
+    <li>
+      <span class="step-index">2</span>
+      <div>
+        <h3>Chunk</h3>
+        <p>Pages are split into passages small enough to be mostly signal.</p>
+        <code>server/rag.js</code>
+      </div>
+    </li>
+    <li>
+      <span class="step-index">3</span>
+      <div>
+        <h3>Embed</h3>
+        <p>Each passage becomes a vector capturing its meaning.</p>
+        <code>server/build-vector-store.js</code>
+      </div>
+    </li>
+    <li>
+      <span class="step-index">4</span>
+      <div>
+        <h3>Retrieve</h3>
+        <p>The question is embedded too, then compared against every passage.</p>
+        <code>selectChunks()</code>
+      </div>
+    </li>
+    <li>
+      <span class="step-index">5</span>
+      <div>
+        <h3>Generate</h3>
+        <p>The best passages become context for a grounded, cited answer.</p>
+        <code>generateAnswer()</code>
+      </div>
+    </li>
+  </ol>
+</section>
+
+<section class="status-card">
+  <header class="status-header">
+    <div>
+      <h2 class="section-title">Status</h2>
+      <p class="status-sub">
+        <strong>{{ counts().remaining }}</strong> of {{ counts().total }} tasks remaining
+      </p>
+    </div>
+
+    <div class="filter-group" role="group" aria-label="Filter tasks">
+      <button
+        type="button"
+        [class.active]="filter() === 'remaining'"
+        (click)="setFilter('remaining')"
+      >
+        Remaining
+      </button>
+      <button type="button" [class.active]="filter() === 'all'" (click)="setFilter('all')">
+        All
+      </button>
+    </div>
+  </header>
+
+  <div class="progress-track" [attr.aria-label]="counts().percent + '% complete'">
+    <div class="progress-fill" [style.width.%]="counts().percent"></div>
+  </div>
+  <p class="progress-caption">{{ counts().done }} done &middot; {{ counts().percent }}% complete</p>
+
+  @for (phase of phases(); track phase.name) {
+    <section class="phase">
+      <header class="phase-header">
+        <h3>{{ phase.name }}</h3>
+        <span class="phase-count">{{ phase.doneCount }}/{{ phase.totalCount }}</span>
+      </header>
+      <p class="phase-summary">{{ phase.summary }}</p>
+
+      <ul class="task-list">
+        @for (task of phase.tasks; track task.title) {
+          <li class="task" [class.is-done]="task.status === 'done'">
+            <span class="status-pill" [class]="statusClass(task.status)">
+              {{ statusLabel[task.status] }}
+            </span>
+            <div class="task-body">
+              <h4>{{ task.title }}</h4>
+              <p>{{ task.detail }}</p>
+              @if (task.where) {
+                <code class="task-where">{{ task.where }}</code>
+              }
+            </div>
+          </li>
+        }
+      </ul>
+    </section>
+  } @empty {
+    <p class="all-done">Nothing left in this view.</p>
+  }
+</section>
+
+<section class="pointers">
+  <h2 class="section-title">Where to read more</h2>
+  <ul>
+    <li><code>README.md</code> &mdash; architecture, setup and the full plan.</li>
+    <li><code>LEARN-RAG.md</code> &mdash; how retrieval-augmented generation works, against this code.</li>
+    <li><code>src/app/roadmap.data.ts</code> &mdash; the source of the list above.</li>
+  </ul>
 </section>

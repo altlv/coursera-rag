@@ -1,6 +1,6 @@
-﻿<header class="app-shell">
+<header class="app-shell">
   <div class="brand">
-    <div class="logo">📚</div>
+    <div class="logo">&#128218;</div>
     <div>
       <div class="brand-title">{{ title() }}</div>
       <p class="brand-subtitle">A RAG-style Angular documentation chatbot project.</p>
@@ -8,12 +8,24 @@
   </div>
 
   <nav class="app-nav">
-    <a routerLink="/">Overview</a>
-    <a routerLink="/docs">Docs</a>
-    <a routerLink="/chat">Chat</a>
+    <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Overview</a>
+    <a routerLink="/docs" routerLinkActive="active">Docs</a>
   </nav>
 </header>
 
-<main class="app-main">
-  <router-outlet />
-</main>
+<!--
+  The rail is a SIBLING of <main>, deliberately outside <router-outlet>.
+
+  Angular destroys and recreates whatever the outlet renders on every navigation,
+  but leaves everything around it untouched. That is what keeps the conversation
+  and the panel's scroll position alive when you move between Overview and Docs.
+-->
+<div class="app-body" [class.rail-collapsed]="!chat.isOpen()">
+  <main class="app-main">
+    <router-outlet />
+  </main>
+
+  <aside class="app-rail">
+    <chat-panel />
+  </aside>
+</div>

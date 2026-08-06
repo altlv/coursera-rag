@@ -1,160 +1,326 @@
 :host {
-  display: block;
-  width: 100%;
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 1.5rem;
-  box-sizing: border-box;
-}
-
-.hero {
   display: grid;
-  gap: 1.25rem;
-  padding: 1.5rem;
-  border-radius: 24px;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f7fb 100%);
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  gap: var(--space-5);
+  width: 100%;
 }
 
-.hero-copy {
-  max-width: 720px;
+.section-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 .eyebrow {
-  margin: 0 0 0.75rem;
+  margin: 0 0 var(--space-2);
   text-transform: uppercase;
   letter-spacing: 0.14em;
-  font-size: 0.75rem;
-  color: #7c83a2;
+  font-size: 0.72rem;
+  color: var(--color-text-eyebrow);
 }
 
-.hero h1,
-.chat-hero h1,
-.why-section h3,
-.progress-header h3 {
-  margin: 0 0 0.75rem;
-  font-size: clamp(1.65rem, 2vw, 2.25rem);
-  line-height: 1.05;
+/* ---------- Hero ---------- */
+
+.hero {
+  padding: var(--space-6) var(--space-5);
+  border-radius: var(--radius-card);
+  background: linear-gradient(140deg, var(--color-brand-tint) 0%, var(--color-surface) 62%);
+  border: 1px solid var(--color-border);
 }
 
-.hero p,
-.why-section p {
+.hero h1 {
+  margin: 0 0 var(--space-4);
+  font-size: clamp(1.6rem, 2.6vw, 2.3rem);
+  line-height: 1.15;
+  max-width: 22ch;
+}
+
+.hero-intro {
   margin: 0;
-  color: #475569;
-  font-size: 1rem;
+  max-width: 62ch;
+  color: var(--color-text-muted);
+  font-size: 1.02rem;
   line-height: 1.7;
 }
 
-.hero-actions {
+.hero-hint {
+  margin: var(--space-4) 0 0;
+  font-size: 0.88rem;
+  color: var(--color-text-subtle);
+}
+
+/* ---------- Pipeline ---------- */
+
+.pipeline {
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.pipeline-steps {
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.pipeline-steps li {
   display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 0.75rem;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border-radius: var(--radius-inner);
+  background: var(--color-page);
+  border: 1px solid var(--color-border);
 }
 
-.primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0.95rem 1.25rem;
-  border-radius: 999px;
-  background: #2e72ff;
-  color: white;
-  text-decoration: none;
-  font-weight: 600;
-  border: none;
+.step-index {
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
 }
 
-.hero-note {
-  margin: 0;
-  color: #64748b;
+.pipeline-steps h3 {
+  margin: 0 0 0.2rem;
   font-size: 0.95rem;
 }
 
-.progress-card {
-  margin-top: 1.75rem;
-  border-radius: 24px;
-  background: white;
-  padding: 1.5rem;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+.pipeline-steps p {
+  margin: 0 0 var(--space-2);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
 }
 
-.progress-header {
+.pipeline-steps code,
+.task-where,
+.pointers code {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-alt);
+  padding: 0.12rem 0.4rem;
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Status ---------- */
+
+.status-card {
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.status-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 1rem;
+  align-items: flex-start;
+  gap: var(--space-4);
   flex-wrap: wrap;
 }
 
-.progress-summary {
-  margin: 0;
-  color: #64748b;
+.status-sub {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-subtle);
+  font-size: 0.9rem;
 }
 
-.task-list {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1.5rem;
+.status-sub strong {
+  color: var(--color-text);
+  font-size: 1.05rem;
 }
 
-.task-card {
+.filter-group {
   display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1.25rem;
-  border-radius: 18px;
-  background: #f8fbff;
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  gap: 0.2rem;
+  padding: 0.2rem;
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-pill);
 }
 
-.task-card h4 {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
-}
-
-.task-card p {
-  margin: 0;
-  color: #475569;
-  font-size: 0.95rem;
-  max-width: 560px;
-}
-
-.status-pill {
-  min-width: 120px;
+.filter-group button {
   border: none;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.75rem 1rem;
+  background: transparent;
+  border-radius: var(--radius-pill);
+  padding: 0.4rem var(--space-4);
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-subtle);
   cursor: pointer;
 }
 
-.status-pill.not-started {
-  background: #f8fafc;
-  color: #475569;
+.filter-group button.active {
+  background: var(--color-surface);
+  color: var(--color-brand-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+.progress-track {
+  height: 0.5rem;
+  margin-top: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-alt);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(90deg, var(--color-brand) 0%, #22c55e 100%);
+  transition: width 240ms ease;
+}
+
+.progress-caption {
+  margin: var(--space-2) 0 0;
+  font-size: 0.8rem;
+  color: var(--color-text-subtle);
+}
+
+/* ---------- Phases and tasks ---------- */
+
+.phase {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.phase-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.phase-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.phase-count {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-alt);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+}
+
+.phase-summary {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: 0.88rem;
+  color: var(--color-text-subtle);
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.task {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  padding: var(--space-3);
+  border-radius: var(--radius-inner);
+  background: var(--color-page);
+  border: 1px solid var(--color-border);
+}
+
+.task.is-done {
+  opacity: 0.62;
+}
+
+.task-body {
+  min-width: 0;
+}
+
+.task-body h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.94rem;
+}
+
+.task-body p {
+  margin: 0 0 var(--space-2);
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.status-pill {
+  flex: none;
+  min-width: 86px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-radius: var(--radius-pill);
+  padding: 0.3rem var(--space-2);
+}
+
+.status-pill.todo {
+  background: var(--color-status-todo-bg);
+  color: var(--color-status-todo);
 }
 
 .status-pill.in-progress {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-status-active-bg);
+  color: var(--color-status-active);
 }
 
 .status-pill.done {
-  background: #dcfce7;
-  color: #166534;
+  background: var(--color-status-done-bg);
+  color: var(--color-status-done);
 }
 
-.why-section {
-  margin-top: 1.75rem;
-  padding: 1.5rem;
-  border-radius: 20px;
-  background: #ffffff;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+.all-done {
+  margin: var(--space-5) 0 0;
+  color: var(--color-text-subtle);
 }
 
-@media (min-width: 768px) {
-  .hero {
-    grid-template-columns: 1fr auto;
-    align-items: center;
+/* ---------- Pointers ---------- */
+
+.pointers {
+  padding: var(--space-5);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.pointers ul {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.pointers li {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+@media (max-width: 640px) {
+  .task {
+    flex-direction: column;
+  }
+
+  .status-pill {
+    min-width: 0;
+    align-self: flex-start;
   }
 }

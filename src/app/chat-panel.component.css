@@ -1,0 +1,430 @@
+/*
+ * Fill the height handed down by .app-rail, which the shell has already sized to
+ * the exact remaining viewport. No sticky positioning and no 100vh here: doing
+ * the maths locally is what pushed the composer below the fold, because this
+ * element starts below the header rather than at the top of the window.
+ */
+:host {
+  display: block;
+  height: 100%;
+  min-height: 0;
+}
+
+/* ---------- Collapsed tab ---------- */
+
+.rail-reopen {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: 48px;
+  padding: var(--space-4) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+
+.rail-reopen:hover {
+  border-color: var(--color-brand-ring);
+  color: var(--color-brand-strong);
+}
+
+.rail-reopen-icon {
+  font-size: 1.1rem;
+}
+
+.rail-reopen-text {
+  writing-mode: vertical-rl;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+}
+
+.rail-reopen-badge {
+  min-width: 1.35rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+/* ---------- Expanded rail ---------- */
+
+/*
+ * Three rows: header, scrolling messages, composer.
+ *
+ * `minmax(0, 1fr)` is essential and NOT the same as `1fr`. A bare `1fr` means
+ * `minmax(auto, 1fr)`, and that `auto` minimum refuses to shrink the row below
+ * its content's height - so a long conversation grew the middle row and pushed
+ * the composer out of the panel, hiding both the end of the answer and the input.
+ */
+.rail {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.rail-header,
+.composer {
+  min-height: 0;
+}
+
+.rail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(180deg, var(--color-brand-tint) 0%, var(--color-surface) 100%);
+}
+
+.rail-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.rail-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--color-status-done);
+  flex: none;
+}
+
+.rail-dot.busy {
+  background: var(--color-brand);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.rail-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.rail-subtitle {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-subtle);
+}
+
+.rail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+
+.rail-icon-button {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-pill);
+  padding: 0.35rem var(--space-2);
+  cursor: pointer;
+  color: var(--color-text-subtle);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+.rail-icon-button:hover {
+  background: var(--color-brand-wash);
+  border-color: var(--color-brand-ring);
+  color: var(--color-brand-strong);
+}
+
+/* ---------- Messages ---------- */
+
+.rail-scroll {
+  min-height: 0; /* lets this row actually become the scroll container */
+  overflow-y: auto;
+  overscroll-behavior: contain; /* don't chain scrolling to the page behind */
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  scrollbar-width: thin;
+}
+
+.bubble {
+  padding: var(--space-3);
+  border-radius: var(--radius-inner);
+  border: 1px solid var(--color-border);
+  background: var(--color-page);
+}
+
+.bubble.user {
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  margin-left: var(--space-5);
+}
+
+.bubble.user .bubble-role,
+.bubble.user .bubble-text {
+  color: #fff;
+}
+
+.bubble.assistant {
+  background: var(--color-surface-alt);
+  margin-right: var(--space-3);
+}
+
+.bubble.error {
+  background: #fef2f2;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.bubble-role {
+  margin: 0 0 var(--space-1);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-text-eyebrow);
+}
+
+.bubble-text {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Typing indicator */
+.typing {
+  display: flex;
+  gap: 0.28rem;
+  align-items: center;
+  height: 1.2rem;
+}
+
+.typing span {
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 50%;
+  background: var(--color-text-subtle);
+  animation: bounce 1.1s ease-in-out infinite;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bounce {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  40% {
+    transform: translateY(-0.25rem);
+    opacity: 1;
+  }
+}
+
+/* ---------- Citations ---------- */
+
+.bubble-sources {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--color-border-strong);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.bubble-sources-label {
+  margin: 0 0 0.15rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-text-eyebrow);
+}
+
+.source-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: 0.82rem;
+}
+
+.source-link {
+  color: var(--color-brand-strong);
+  text-decoration: none;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.source-external {
+  color: var(--color-text-subtle);
+  text-decoration: none;
+  flex: none;
+  font-size: 0.9rem;
+}
+
+.source-external:hover {
+  color: var(--color-brand);
+}
+
+/* ---------- Example prompts ---------- */
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.examples-label {
+  width: 100%;
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--color-text-eyebrow);
+}
+
+.example-chip {
+  border: 1px dashed var(--color-border-strong);
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  padding: 0.35rem var(--space-3);
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.example-chip:hover {
+  border-style: solid;
+  border-color: var(--color-brand-ring);
+  background: var(--color-brand-wash);
+  color: var(--color-brand-strong);
+}
+
+/* ---------- Composer ---------- */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.composer textarea {
+  flex: 1;
+  min-width: 0;
+  resize: none;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-inner);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-page);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.composer textarea:focus-visible {
+  outline: 2px solid var(--color-brand-ring);
+  outline-offset: 1px;
+}
+
+.composer-send {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.composer-send:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Narrow screens: overlay instead of a rail ---------- */
+
+@media (max-width: 900px) {
+  :host {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--space-4);
+    top: auto;
+    height: auto;
+    z-index: 40;
+  }
+
+  .rail {
+    width: min(92vw, 380px);
+    height: min(70vh, 560px);
+  }
+
+  .rail-reopen {
+    flex-direction: row;
+    width: auto;
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .rail-reopen-text {
+    writing-mode: horizontal-tb;
+  }
+}

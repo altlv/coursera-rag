@@ -1,0 +1,116 @@
+@if (!store.isOpen()) {
+  <!-- Collapsed: a slim vertical tab that reopens the rail. -->
+  <button class="rail-reopen" type="button" (click)="store.open()" title="Open the assistant">
+    <span class="rail-reopen-icon" aria-hidden="true">&#9776;</span>
+    <span class="rail-reopen-text">Ask Angular</span>
+    @if (store.messageCount() > 0) {
+      <span class="rail-reopen-badge">{{ store.messageCount() }}</span>
+    }
+  </button>
+} @else {
+  <section class="rail" aria-label="Angular documentation assistant">
+    <header class="rail-header">
+      <div class="rail-title-group">
+        <span class="rail-dot" [class.busy]="store.isLoading()" aria-hidden="true"></span>
+        <div>
+          <h2 class="rail-title">Ask Angular</h2>
+          <p class="rail-subtitle">Answers cite the local docs</p>
+        </div>
+      </div>
+      <div class="rail-actions">
+        @if (store.hasConversation()) {
+          <button class="rail-icon-button" type="button" (click)="store.reset()" title="Clear conversation">
+            Clear
+          </button>
+        }
+        <button class="rail-icon-button" type="button" (click)="store.toggle()" title="Collapse the assistant">
+          &#10095;
+        </button>
+      </div>
+    </header>
+
+    <div class="rail-scroll" #scroller>
+      @for (message of store.messages(); track $index) {
+        <article
+          class="bubble"
+          [class.user]="message.role === 'user'"
+          [class.assistant]="message.role === 'assistant'"
+          [class.error]="message.isError"
+        >
+          <p class="bubble-role">{{ message.role === 'user' ? 'You' : 'Assistant' }}</p>
+          <p class="bubble-text">{{ message.text }}</p>
+
+          @if (message.sources?.length) {
+            <div class="bubble-sources">
+              <p class="bubble-sources-label">Sources</p>
+              @for (source of message.sources; track source.path) {
+                <div class="source-row">
+                  <!-- routerLink so the MAIN pane navigates while this rail,
+                       being outside the router outlet, keeps its history. -->
+                  <a
+                    class="source-link"
+                    routerLink="/docs"
+                    [queryParams]="{ path: source.path }"
+                    >{{ source.title }}</a
+                  >
+                  @if (source.originalUrl) {
+                    <a
+                      class="source-external"
+                      [href]="source.originalUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open on angular.dev"
+                      >&#8599;</a
+                    >
+                  }
+                </div>
+              }
+            </div>
+          }
+        </article>
+      }
+
+      @if (store.isLoading()) {
+        <article class="bubble assistant pending">
+          <p class="bubble-role">Assistant</p>
+          <p class="bubble-text typing">
+            <span></span><span></span><span></span>
+          </p>
+        </article>
+      }
+
+      @if (!store.hasConversation() && !store.isLoading()) {
+        <div class="examples">
+          <p class="examples-label">Try asking</p>
+          @for (example of examples; track example) {
+            <button class="example-chip" type="button" (click)="askExample(example)">
+              {{ example }}
+            </button>
+          }
+        </div>
+      }
+    </div>
+
+    <form class="composer" (ngSubmit)="store.send()">
+      <label class="sr-only" for="rail-question">Ask about Angular</label>
+      <textarea
+        id="rail-question"
+        rows="2"
+        placeholder="Ask about Angular..."
+        [ngModel]="store.draft()"
+        (ngModelChange)="store.draft.set($event)"
+        name="railQuestion"
+        (keydown)="onKeydown($event)"
+        [disabled]="store.isLoading()"
+      ></textarea>
+      <button
+        class="composer-send"
+        type="submit"
+        [disabled]="store.isLoading() || !store.draft().trim()"
+        title="Send (Enter)"
+      >
+        &#8594;
+      </button>
+    </form>
+  </section>
+}
