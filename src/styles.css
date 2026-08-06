@@ -1,1 +1,89 @@
-/* You can add global styles to this file, and also import other style files */
+/*
+ * Global design tokens.
+ *
+ * Before this file existed, every colour was a hex literal copy-pasted between
+ * component stylesheets, and they had already drifted: the brand blue was
+ * #2e72ff in app.css but #0b6efd in docs.component.css. Component styles should
+ * reference these variables rather than raw values.
+ *
+ * Custom properties pierce Angular's :host view encapsulation (encapsulation
+ * scopes selectors, not inherited values), so a token declared here is readable
+ * from every component without any import.
+ */
+
+:root {
+  /* Brand */
+  --color-brand: #2e72ff;
+  --color-brand-strong: #1d5be0;
+  --color-brand-tint: #eff6ff;
+  --color-brand-ring: rgba(46, 114, 255, 0.24);
+  --color-brand-wash: rgba(46, 114, 255, 0.08);
+
+  /* Text */
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-text-subtle: #64748b;
+  --color-text-eyebrow: #7c83a2;
+
+  /* Surfaces */
+  --color-page: #f8fbff;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f1f5f9;
+  --color-border: rgba(148, 163, 184, 0.16);
+  --color-border-strong: rgba(148, 163, 184, 0.34);
+
+  /* Status pills */
+  --color-status-done: #15803d;
+  --color-status-done-bg: rgba(34, 197, 94, 0.12);
+  --color-status-active: #b45309;
+  --color-status-active-bg: rgba(245, 158, 11, 0.14);
+  --color-status-todo: #475569;
+  --color-status-todo-bg: rgba(148, 163, 184, 0.16);
+
+  /* Radii */
+  --radius-card: 24px;
+  --radius-inner: 18px;
+  --radius-sm: 10px;
+  --radius-pill: 999px;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  /* Layout */
+  --content-max: 1100px;
+  --rail-width: 380px;
+  /* Lifts the chat rail (and so its composer) clear of the window bottom. */
+  --rail-bottom-gap: 50px;
+
+  /* Type */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-rail: -8px 0 24px rgba(15, 23, 42, 0.06);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-page);
+}

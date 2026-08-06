@@ -10,11 +10,15 @@
       "url": "http://localhost:4200/"
     },
     {
-      "name": "ng test",
-      "type": "chrome",
+      // The old "ng test" entry pointed at http://localhost:9876/debug.html,
+      // which is Karma's debug URL. This workspace uses @angular/build:unit-test
+      // with Vitest, so that URL never existed. Debug the backend instead.
+      "name": "Debug backend (Fastify)",
+      "type": "node",
       "request": "launch",
-      "preLaunchTask": "npm: test",
-      "url": "http://localhost:9876/debug.html"
+      "program": "${workspaceFolder}/server/index.js",
+      "envFile": "${workspaceFolder}/.env",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }

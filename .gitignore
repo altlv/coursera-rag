@@ -44,6 +44,13 @@ __screenshots__/
 .env.local
 .env.*.local
 
+# Generated vector store - regenerable with `npm run build-embeddings`.
+# Never commit these: they are large (MBs), re-diff wholesale on every rebuild,
+# and are derived entirely from docs/angular/**/index.json.
+docs/angular/embeddings.json
+docs/angular/chunks.json
+docs/angular/vectors.bin
+
 # System files
 .DS_Store
 Thumbs.db
