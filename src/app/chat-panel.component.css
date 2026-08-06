@@ -203,12 +203,124 @@
 }
 
 .bubble-role {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
   margin: 0 0 var(--space-1);
   font-size: 0.68rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.09em;
   color: var(--color-text-eyebrow);
+}
+
+/* Confidence badge. Composite signal, not the similarity score. */
+.confidence {
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--radius-pill);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  cursor: help;
+}
+
+.confidence-high {
+  background: var(--color-status-done-bg);
+  color: var(--color-status-done);
+}
+
+.confidence-medium {
+  background: var(--color-status-active-bg);
+  color: var(--color-status-active);
+}
+
+.confidence-low {
+  background: var(--color-status-todo-bg);
+  color: var(--color-status-todo);
+}
+
+/* ---------- Retrieval trace ---------- */
+
+.trace {
+  margin-top: var(--space-3);
+  border-top: 1px dashed var(--color-border-strong);
+  padding-top: var(--space-2);
+}
+
+.trace summary {
+  cursor: pointer;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-eyebrow);
+}
+
+.trace summary:hover {
+  color: var(--color-brand-strong);
+}
+
+.trace-body {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.trace-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--color-text-subtle);
+}
+
+.trace-row {
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.trace-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.trace-score {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-brand-strong);
+  flex: none;
+}
+
+.trace-path {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--color-text-subtle);
+  overflow-wrap: anywhere;
+}
+
+.trace-ranks {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0.2rem 0 0;
+}
+
+.trace-ranks span {
+  font-size: 0.64rem;
+  color: var(--color-text-subtle);
+  background: var(--color-surface-alt);
+  padding: 0.05rem 0.3rem;
+  border-radius: var(--radius-sm);
+}
+
+.trace-snippet {
+  margin: var(--space-2) 0 0;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  max-height: 5.5em;
+  overflow: hidden;
 }
 
 .bubble-text {

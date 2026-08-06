@@ -166,7 +166,7 @@ function cosineSimilarity(a, b) {
  * simply the least-bad chunk, and an off-topic question still gets four
  * confident-looking citations.
  */
-function selectChunks(queryVector, store, { k = 5, floor = 0.25 } = {}) {
+function selectChunks(queryVector, store, { k = 5, floor = 0.25, maxPerPage = 2 } = {}) {
   if (!store || !store.chunks || store.chunks.length === 0) return [];
 
   const dims = store.dimensions;
@@ -184,7 +184,214 @@ function selectChunks(queryVector, store, { k = 5, floor = 0.25 } = {}) {
   }
 
   scored.sort((a, b) => b.score - a.score);
-  return scored.slice(0, k);
+  return capPerPage(scored, k, maxPerPage);
+}
+
+/**
+ * Take the best `k`, allowing at most `maxPerPage` chunks from any one page.
+ *
+ * Without this the top-k collapses onto whichever page happens to match well.
+ * Measured: "What does CSS stand for?" filled 2 of its 5 slots with duplicates -
+ * /best-practices/security twice and /guide/components/styling twice - so 40% of
+ * the context window went to material the model had already seen.
+ *
+ * Adjacent chunks from the same page also overlap by design (150 characters), so
+ * consecutive ones are partly the same text. Spending slots on near-duplicates
+ * costs breadth exactly when the question needs it.
+ */
+function capPerPage(sortedChunks, k, maxPerPage) {
+  if (!maxPerPage || maxPerPage < 1) return sortedChunks.slice(0, k);
+
+  const perPage = new Map();
+  const picked = [];
+  const overflow = [];
+
+  for (const chunk of sortedChunks) {
+    const used = perPage.get(chunk.path) || 0;
+    if (used < maxPerPage) {
+      perPage.set(chunk.path, used + 1);
+      picked.push(chunk);
+      if (picked.length === k) return picked;
+    } else {
+      overflow.push(chunk);
+    }
+  }
+
+  // Not enough distinct pages to fill k: rather than return fewer results than
+  // asked for, top up with the best of what the cap held back.
+  for (const chunk of overflow) {
+    if (picked.length === k) break;
+    picked.push(chunk);
+  }
+
+  return picked;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4b: hybrid retrieval
+// ---------------------------------------------------------------------------
+
+/** Words too common to carry signal in a docs corpus. */
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'do', 'does',
+  'for', 'from', 'how', 'i', 'in', 'is', 'it', 'of', 'on', 'or', 'that', 'the',
+  'to', 'use', 'using', 'what', 'when', 'where', 'which', 'why', 'with', 'you',
+  'your', 'my', 'me', 'we', 'this', 'these', 'those', 'there', 'they',
+]);
+
+function tokenize(text) {
+  return (text || '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 1 && !STOP_WORDS.has(token));
+}
+
+/**
+ * Rank chunks by keyword overlap, BM25-style.
+ *
+ * Why this exists alongside vector search: embeddings match on meaning but can
+ * miss exact terminology. Measured case - "how do I pass data into a component?"
+ * ranked /guide/components/inputs only 5th, because the question says "pass
+ * data" while the page says "input". Keyword scoring catches the literal term
+ * that the embedding glossed over.
+ *
+ * IDF weighting means a rare word like "interceptor" counts for far more than a
+ * common one like "component", and length normalisation stops long chunks from
+ * winning on sheer word count.
+ */
+function rankLexical(query, chunks, { k1 = 1.2, b = 0.75 } = {}) {
+  const queryTokens = [...new Set(tokenize(query))];
+  if (queryTokens.length === 0 || chunks.length === 0) return [];
+
+  const docTokens = chunks.map((chunk) => tokenize(`${chunk.title} ${chunk.text}`));
+  const avgLength = docTokens.reduce((sum, t) => sum + t.length, 0) / docTokens.length;
+
+  // Document frequency per query token.
+  const df = new Map();
+  for (const token of queryTokens) {
+    df.set(token, docTokens.reduce((count, tokens) => count + (tokens.includes(token) ? 1 : 0), 0));
+  }
+
+  const scored = [];
+  for (let i = 0; i < chunks.length; i += 1) {
+    const tokens = docTokens[i];
+    if (tokens.length === 0) continue;
+
+    const counts = new Map();
+    for (const token of tokens) counts.set(token, (counts.get(token) || 0) + 1);
+
+    let score = 0;
+    for (const token of queryTokens) {
+      const tf = counts.get(token) || 0;
+      if (tf === 0) continue;
+
+      const n = df.get(token) || 0;
+      const idf = Math.log(1 + (chunks.length - n + 0.5) / (n + 0.5));
+      score += idf * ((tf * (k1 + 1)) / (tf + k1 * (1 - b + b * (tokens.length / avgLength))));
+    }
+
+    if (score > 0) scored.push({ index: i, score });
+  }
+
+  scored.sort((a, b2) => b2.score - a.score);
+  return scored;
+}
+
+/**
+ * Reciprocal Rank Fusion: combine several rankings using position, not score.
+ *
+ *   fused(d) = sum over rankings of 1 / (rrfK + rank(d))
+ *
+ * Positions are the point. Cosine similarity lands around 0.25-0.65 while BM25
+ * is unbounded and corpus-dependent, so the two scores cannot be added or
+ * averaged in any principled way - one would silently dominate. Ranks are
+ * directly comparable, which is why RRF is the standard choice here.
+ *
+ * rrfK = 60 is the conventional value. It flattens the curve so a document
+ * ranked 1st by one method and 10th by the other still beats one ranked 5th by
+ * both, rewarding agreement across methods over a single strong opinion.
+ */
+function fuseRankings(rankings, { rrfK = 60 } = {}) {
+  const fused = new Map();
+
+  for (const ranking of rankings) {
+    ranking.forEach((entry, position) => {
+      const current = fused.get(entry.index) || { index: entry.index, score: 0, ranks: {} };
+      current.score += 1 / (rrfK + position + 1);
+      current.ranks[ranking.label || 'unnamed'] = position + 1;
+      fused.set(entry.index, current);
+    });
+  }
+
+  return [...fused.values()].sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Retrieve using vector similarity AND keyword matching, fused by rank.
+ *
+ * Keyword scoring is applied ONLY to chunks that already cleared the vector
+ * floor, which makes this a reranker rather than a recall expander. That is a
+ * deliberate trade:
+ *
+ *   - It preserves the free-refusal guarantee. If nothing is semantically close,
+ *     nothing is returned, and the server never calls the model. Letting keyword
+ *     matches in from below the floor would mean "Got milk?" could drag in a
+ *     chunk containing the word "milk" and turn a free refusal into a partial
+ *     answer.
+ *
+ *   - It is enough for the problem actually measured. /guide/components/inputs
+ *     scored 0.505, comfortably above the floor - it was simply ranked 5th. That
+ *     is a RANKING failure, not a recall failure, and reranking fixes it.
+ *
+ * The cost of the trade: a chunk with strong exact-term overlap but weak semantic
+ * similarity can still never be recalled. Fixing that would mean a second,
+ * lower floor for the lexical pool, and a way to stop it undermining refusals.
+ */
+function selectChunksHybrid(queryVector, query, store, options = {}) {
+  const { k = 5, floor = 0.25, maxPerPage = 2, rrfK = 60 } = options;
+
+  if (!store || !store.chunks || store.chunks.length === 0) return [];
+
+  const dims = store.dimensions;
+
+  // Vector ranking over everything above the floor.
+  const vectorScores = [];
+  for (let i = 0; i < store.chunks.length; i += 1) {
+    const offset = i * dims;
+    let score = 0;
+    for (let d = 0; d < dims; d += 1) score += queryVector[d] * store.vectors[offset + d];
+    if (score >= floor) vectorScores.push({ index: i, score });
+  }
+  vectorScores.sort((a, b) => b.score - a.score);
+
+  // Nothing semantically close: refuse, and do not let keywords rescue it.
+  if (vectorScores.length === 0) return [];
+
+  const vectorRanking = vectorScores;
+  vectorRanking.label = 'vector';
+
+  // Lexical ranking over the SAME candidate set, so every fused result is
+  // guaranteed to have a real similarity score above the floor.
+  const candidates = vectorScores.map((v) => store.chunks[v.index]);
+  const lexicalRanking = rankLexical(query, candidates).map((entry) => ({
+    index: vectorScores[entry.index].index,
+    score: entry.score,
+  }));
+  lexicalRanking.label = 'lexical';
+
+  const similarityByIndex = new Map(vectorScores.map((v) => [v.index, v.score]));
+  const fused = fuseRankings([vectorRanking, lexicalRanking], { rrfK });
+
+  const results = fused.map((entry) => ({
+    ...store.chunks[entry.index],
+    // `score` stays the cosine similarity so the floor, the golden set and every
+    // threshold keep meaning the same thing. Fusion score is reported separately.
+    score: similarityByIndex.get(entry.index) ?? 0,
+    fusedScore: entry.score,
+    ranks: entry.ranks,
+  }));
+
+  return capPerPage(results, k, maxPerPage);
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +526,102 @@ async function generateAnswer({ question, chunks, llm }) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Answer confidence
+// ---------------------------------------------------------------------------
+
+/**
+ * How much to trust an answer, as a composite signal.
+ *
+ * The tempting implementation is "confidence = top similarity score". It would
+ * be actively misleading, and this repo has the measurement to prove it:
+ *
+ *   "What does CSS stand for?"                 top score 0.457  <- unanswerable
+ *   "how do I loop over a list in a template?" top score 0.475  <- correct answer
+ *
+ * A 0.018 gap. Similarity measures topical closeness, NOT whether the answer is
+ * present in the passages, so a score-based badge would rate an unanswerable
+ * question as highly as a real one.
+ *
+ * Four signals instead, in descending order of usefulness:
+ *
+ *   1. status - by far the strongest. The model has read the passages and said
+ *      whether they answer the question. Nothing derived from scores beats that.
+ *   2. citation coverage - an answer citing nothing is unsupported prose, even if
+ *      retrieval scored well.
+ *   3. score gap between the top hit and the rest - a distinctive match stands
+ *      out; uniformly flat scores mean the corpus had no strong opinion.
+ *   4. distinct pages - agreement across several pages is corroboration, whereas
+ *      everything from one page may just be one well-matched paragraph.
+ *
+ * Reported as high/medium/low with the reasons attached. Deliberately not a
+ * percentage: the inputs do not support that kind of precision, and a number
+ * like "73% confident" invites trust it has not earned.
+ */
+function assessConfidence({ status, results = [], citations = [] }) {
+  const signals = {
+    status,
+    topScore: results[0]?.score ?? 0,
+    scoreGap: 0,
+    distinctPages: new Set(results.map((r) => r.path)).size,
+    citationCount: citations.length,
+  };
+
+  if (results.length > 1) {
+    const rest = results.slice(1).reduce((sum, r) => sum + (r.score || 0), 0) / (results.length - 1);
+    signals.scoreGap = Number((signals.topScore - rest).toFixed(4));
+  }
+
+  // Nothing was found, or nothing found answered the question. Neither is a
+  // confident state, whatever the scores looked like.
+  if (status === 'refused') {
+    return { level: 'none', reasons: ['Nothing in the indexed docs matched'], signals };
+  }
+  if (status === 'partial') {
+    return {
+      level: 'low',
+      reasons: ['Pages were found but none answered the question'],
+      signals,
+    };
+  }
+
+  const reasons = [];
+  let points = 0;
+
+  if (signals.citationCount >= 2) {
+    points += 2;
+    reasons.push(`Cites ${signals.citationCount} passages`);
+  } else if (signals.citationCount === 1) {
+    points += 1;
+    reasons.push('Cites 1 passage');
+  } else {
+    reasons.push('Answer cites no passage');
+  }
+
+  if (signals.topScore >= 0.5) {
+    points += 2;
+    reasons.push('Strong top match');
+  } else if (signals.topScore >= 0.4) {
+    points += 1;
+    reasons.push('Moderate top match');
+  } else {
+    reasons.push('Weak top match');
+  }
+
+  if (signals.distinctPages >= 3) {
+    points += 1;
+    reasons.push(`Corroborated across ${signals.distinctPages} pages`);
+  }
+
+  if (signals.scoreGap >= 0.06) {
+    points += 1;
+    reasons.push('Top match stands clearly above the rest');
+  }
+
+  const level = points >= 4 ? 'high' : points >= 2 ? 'medium' : 'low';
+  return { level, reasons, signals };
+}
+
 /**
  * Adapter turning an OpenAI client into the minimal `llm` shape above. Keeping
  * this separate is what lets the tests avoid the network entirely.
@@ -349,6 +652,12 @@ module.exports = {
   dotProduct,
   cosineSimilarity,
   selectChunks,
+  capPerPage,
+  tokenize,
+  rankLexical,
+  fuseRankings,
+  selectChunksHybrid,
+  assessConfidence,
   buildPrompt,
   extractCitations,
   generateAnswer,

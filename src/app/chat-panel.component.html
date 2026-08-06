@@ -37,7 +37,19 @@
           [class.assistant]="message.role === 'assistant'"
           [class.error]="message.isError"
         >
-          <p class="bubble-role">{{ message.role === 'user' ? 'You' : 'Assistant' }}</p>
+          <p class="bubble-role">
+            <span>{{ message.role === 'user' ? 'You' : 'Assistant' }}</span>
+            @if (message.confidence && message.confidence.level !== 'none') {
+              <!-- Composite, NOT the similarity score - see assessConfidence().
+                   Hover for the reasons behind the verdict. -->
+              <span
+                class="confidence"
+                [class]="'confidence confidence-' + message.confidence.level"
+                [title]="message.confidence.reasons.join(' • ')"
+                >{{ message.confidence.level }}</span
+              >
+            }
+          </p>
           <p class="bubble-text">{{ message.text }}</p>
 
           @if (message.sources?.length) {
@@ -70,6 +82,40 @@
                 </div>
               }
             </div>
+          }
+
+          @if (message.retrieved?.length) {
+            <!--
+              The retrieval trace. All of this was already in the API response and
+              was being thrown away; showing it makes the pipeline legible.
+              `ranks` reveals where each method placed a passage, which is how you
+              can see hybrid retrieval promoting a keyword match the embedding
+              ranked lower.
+            -->
+            <details class="trace">
+              <summary>How this answer was built</summary>
+              <div class="trace-body">
+                @if (message.promptTokens) {
+                  <p class="trace-meta">{{ message.promptTokens }} prompt tokens sent to the model</p>
+                }
+                @for (item of message.retrieved; track $index) {
+                  <div class="trace-row">
+                    <div class="trace-head">
+                      <span class="trace-score">{{ item.score?.toFixed(3) }}</span>
+                      <span class="trace-path">{{ item.path }}</span>
+                    </div>
+                    @if (item.ranks) {
+                      <p class="trace-ranks">
+                        @for (entry of rankEntries(item.ranks); track entry.key) {
+                          <span>{{ entry.key }} #{{ entry.value }}</span>
+                        }
+                      </p>
+                    }
+                    <p class="trace-snippet">{{ item.snippet }}</p>
+                  </div>
+                }
+              </div>
+            </details>
           }
         </article>
       }

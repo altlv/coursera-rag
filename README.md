@@ -67,7 +67,54 @@ Why the third case matters: there are **two independent defences** against confi
 
 A system with only the first defence would answer `what is CSS?` from the model's own training data, sounding authoritative while citing Angular security and styling pages that never defined CSS. Retrieval returning something is not the same as retrieval returning something *useful*, and the prompt has to assume it might not have.
 
-Note that absolute similarity scores are lower than you might expect (a strong match sits near 0.47, not 0.9). That is normal and not a defect: passages are ~1,200 characters, so a broad question like *"what is Angular?"* only ever overlaps part of any single passage. What matters is the **gap** between a real match and noise, which here is roughly 0.47 versus 0.26.
+Note that absolute similarity scores are lower than you might expect (a strong match sits near 0.47, not 0.9). That is normal and not a defect: passages are ~1,200 characters, so a broad question like *"what is Angular?"* only ever overlaps part of any single passage. What matters is the **gap** between a real match and noise.
+
+## How retrieval works
+
+Three mechanisms, each added because something measurable was wrong without it.
+
+**Hybrid search: vectors and keywords, fused by rank.** Embeddings match meaning but can skate over exact terminology. *"How do I pass data into a component?"* ranked `/guide/components/inputs` only **5th** under pure vector search, because the question says "pass data" while the page says "input". Adding BM25 keyword scoring moved it to **1st**.
+
+The two cannot simply be added together: cosine similarity lives in roughly 0.25–0.65 while BM25 is unbounded and corpus-dependent, so one would silently dominate. Instead they are combined by **Reciprocal Rank Fusion**, which uses positions rather than scores:
+
+```
+fused(passage) = Σ over methods of  1 / (60 + rank)
+```
+
+This rewards agreement: a passage ranked 1st by one method and 10th by the other beats one ranked 5th by both. The `ranks` field in the API response shows exactly where each method placed a passage.
+
+Keyword scoring is applied only to passages that already cleared the similarity floor, making it a **reranker rather than a recall expander**. That is deliberate — it preserves the free refusal. If keyword matches could enter from below the floor, *"Got milk?"* could drag in a passage containing "milk" and turn a free refusal into a partial answer. The measured problem was a *ranking* failure, not a recall failure, so reranking is sufficient. The cost: a passage with strong exact-term overlap but weak semantic similarity still cannot be recalled.
+
+**Diversity cap: at most 2 passages per page.** Without it the top-k collapses onto one well-matched page. *"What does CSS stand for?"* spent 2 of its 5 slots on duplicates, so 40% of the context window went to material the model had already seen — and adjacent passages overlap by 150 characters by design.
+
+**Measured effect of both**, on the golden set:
+
+| | hit@3 | MRR |
+| --- | --- | --- |
+| Vector only | 12/13 (92%) | 0.836 |
+| Hybrid + diversity cap | **13/13 (100%)** | **1.000** |
+
+## Answer confidence
+
+Each answer carries a `high` / `medium` / `low` badge. It is **not** the similarity score, and this repo has the measurement showing why that would mislead:
+
+| Question | Top score | Reality |
+| --- | --- | --- |
+| `What does CSS stand for?` | 0.457 | Docs cannot answer it |
+| `how do I loop over a list in a template?` | 0.475 | Correct answer |
+
+An 0.018 gap. **Similarity measures topical closeness, not whether the answer is present.** A score-based badge would rate an unanswerable question as highly as a real one.
+
+So confidence is composite, in descending order of usefulness:
+
+1. **`status`** — by far the strongest signal. The model has read the passages and stated whether they answer the question; nothing derived from scores beats that.
+2. **Citation coverage** — an answer citing nothing is unsupported prose, however well retrieval scored.
+3. **Score gap** between the top hit and the rest — a distinctive match stands out; uniformly flat scores mean the corpus had no strong opinion.
+4. **Distinct pages** — agreement across several pages is corroboration; everything from one page may be a single well-matched paragraph.
+
+Reported as a level with its reasons attached, deliberately not a percentage: the inputs do not support that precision, and "73% confident" invites trust it has not earned.
+
+Expand **"How this answer was built"** under any answer to see the passages, their similarity scores, the rank each method assigned, and the prompt token count.
 
 Environment configuration:
 - Copy `.env.sample` to `.env` and set `OPENAI_API_KEY` there.

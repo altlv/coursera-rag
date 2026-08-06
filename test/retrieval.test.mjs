@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { describe, it, expect, beforeAll } from 'vitest';
-import { selectChunks } from '../server/rag.js';
+import { selectChunksHybrid } from '../server/rag.js';
 import { GOLDEN_SET, MATCH_QUESTIONS, SCORE_FLOOR, STRONG_SCORE } from './golden-set.mjs';
 
 /*
@@ -25,6 +25,7 @@ const VECTORS_FILE = path.join(DOCS_ROOT, 'vectors.bin');
 const FIXTURE_FILE = path.resolve('test/fixtures/golden-vectors.json');
 
 const K = 5;
+const MAX_PER_PAGE = 2;
 const HIT_AT_3_TARGET = 0.8;
 
 let store = null;
@@ -65,11 +66,17 @@ beforeAll(async () => {
   ready = true;
 });
 
-/** Retrieve for a golden question using its cached vector. */
-function retrieve(question, { floor = SCORE_FLOOR, k = K } = {}) {
+/**
+ * Retrieve for a golden question using its cached vector.
+ *
+ * Uses the hybrid path, i.e. exactly what /api/chat runs. A golden set that
+ * measured a different code path than production would report numbers nobody
+ * could act on.
+ */
+function retrieve(question, { floor = SCORE_FLOOR, k = K, maxPerPage = MAX_PER_PAGE } = {}) {
   const entry = fixture.questions.find((q) => q.question === question);
   if (!entry) throw new Error(`No cached vector for "${question}". Run npm run build-golden.`);
-  return selectChunks(entry.vector, store, { k, floor });
+  return selectChunksHybrid(entry.vector, question, store, { k, floor, maxPerPage });
 }
 
 /** 1-based rank of the first acceptable page, or 0 if absent. */

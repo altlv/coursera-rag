@@ -5,9 +5,9 @@ const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const { OpenAI } = require('openai');
 const {
-  normalizeText,
   normalizeVector,
-  selectChunks,
+  selectChunksHybrid,
+  assessConfidence,
   generateAnswer,
   createOpenAiLlm,
   REFUSAL,
@@ -19,6 +19,12 @@ dotenv.config();
 // effect on hit@3 / MRR rather than guessing.
 const TOP_K = 5;
 const SCORE_FLOOR = 0.25;
+/*
+ * At most 2 passages from any single page. Without this the top-k collapses onto
+ * one well-matched page: "What does CSS stand for?" spent 2 of 5 slots on
+ * duplicates, and adjacent chunks overlap by 150 characters anyway.
+ */
+const MAX_PER_PAGE = 2;
 const CHAT_MODEL = 'gpt-4o-mini';
 const EMBEDDING_MODEL = 'text-embedding-3-small';
 
@@ -165,12 +171,26 @@ async function embedQuery(text) {
   return normalizeVector(embedding);
 }
 
+/*
+ * Retrieve with vector similarity AND keyword matching, fused by rank.
+ *
+ * Vector search alone missed a measured case: "how do I pass data into a
+ * component?" ranked /guide/components/inputs only 5th, because the question
+ * says "pass data" while the page says "input". Embeddings match meaning but can
+ * skate over exact terminology; BM25-style keyword scoring catches the literal
+ * term. Fusing by RANK rather than score is what makes them combinable at all -
+ * cosine sits in ~0.25-0.65 while BM25 is unbounded.
+ */
 async function searchVectors(query, limit = TOP_K) {
   const store = await loadVectorStore();
   if (!store) return [];
 
   const queryVector = await embedQuery(query);
-  return selectChunks(queryVector, store, { k: limit, floor: SCORE_FLOOR });
+  return selectChunksHybrid(queryVector, query, store, {
+    k: limit,
+    floor: SCORE_FLOOR,
+    maxPerPage: MAX_PER_PAGE,
+  });
 }
 
 function buildSnippet(contentText, query) {
@@ -347,11 +367,16 @@ app.post('/api/chat', async (request, reply) => {
     answer,
     citations,
     usage,
+    // Composite, deliberately not derived from similarity alone - see
+    // assessConfidence() for why a score-based badge would mislead.
+    confidence: assessConfidence({ status, results, citations }),
     sources,
     retrieved: results.map((result) => ({
       title: result.title,
       path: result.path,
       score: result.score,
+      /** Where each retrieval method placed this chunk, for explainability. */
+      ranks: result.ranks,
       snippet: (result.snippet || result.text || '').slice(0, 400),
     })),
   };

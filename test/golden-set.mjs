@@ -64,27 +64,25 @@ export const GOLDEN_SET = [
   },
   {
     /*
-     * KNOWN MISS, left failing on purpose.
+     * This was the one miss under pure vector search, and it is the reason
+     * hybrid retrieval exists.
      *
-     * /guide/components/inputs is retrieved, but at rank 5 - outside the top 3.
-     * Ranks 1-4 are generic component-overview pages, led by
-     * /essentials/components at 0.533.
+     * /guide/components/inputs ranked 5th, behind generic component-overview
+     * pages led by /essentials/components at 0.533. The cause was vocabulary
+     * mismatch: the question says "pass data", the page says "input".
      *
-     * It would be easy to "fix" by adding /essentials/components to the
-     * acceptable list, and wrong: that page mentions "input" exactly once, in
-     * the sense of handling USER input, and never covers @Input or input().
-     * It does not answer the question.
+     * The tempting fix was to accept /essentials/components. That would have
+     * been wrong - it mentions "input" exactly once, meaning USER input, and
+     * never covers @Input or input(). Widening the expectation would have hidden
+     * a real retrieval weakness behind a green test.
      *
-     * The real cause is vocabulary mismatch - the question says "pass data",
-     * the page says "input" - which pure vector search handles poorly. The
-     * genuine fixes are hybrid lexical+vector retrieval or reranking, both of
-     * which are candidates in the roadmap. Until then this stays a documented
-     * miss rather than a widened expectation.
+     * Adding BM25 keyword scoring fused by rank moved it from rank 5 to rank 1,
+     * because the literal term "input" is exactly what keyword matching sees and
+     * the embedding glossed over.
      */
     question: 'how do I pass data into a component?',
     expect: 'match',
     acceptablePaths: ['/guide/components/inputs', '/guide/signals/inputs'],
-    knownMiss: 'retrieved at rank 5; generic component pages outrank it',
   },
   {
     question: 'how do I loop over a list in a template?',

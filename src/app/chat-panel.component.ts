@@ -52,6 +52,11 @@ export class ChatPanelComponent {
     void this.store.send(question);
   }
 
+  /** Angular templates cannot iterate a plain object, so flatten it here. */
+  protected rankEntries(ranks: Record<string, number>) {
+    return Object.entries(ranks).map(([key, value]) => ({ key, value }));
+  }
+
   protected readonly examples = [
     'What is a signal?',
     'How do I create a component?',
