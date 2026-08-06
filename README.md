@@ -56,25 +56,31 @@ These three cover the behaviours a RAG system has to get right. Ask them in the 
 
 | Ask this | Behaviour | What you should see |
 | --- | --- | --- |
-| `what is Angular?` | **Match** | A real, grounded answer with a citation. Top similarity around **0.65**, five passages retrieved, cites `[1]` from `/overview`. |
+| `what is Angular?` | **Match** | A real, grounded answer. Five passages retrieved, top similarity **0.472**, led by `/overview`, citing `[1][3][4]`. |
 | `got milk?` | **No match** | An honest refusal. **Zero** passages clear the similarity floor, so the language model is never called at all - the refusal is free and cannot be a guess. |
-| `what is CSS?` | **Partial match** | The interesting one. Two passages *just* squeak past the floor (**0.287** and **0.269**, against a floor of 0.25) from `/guide/tailwind` and `/best-practices/security` - they mention styling, so they are weakly related. But the model correctly replies *"The provided passages do not contain information about CSS"* and cites nothing. |
+| `what is CSS?` | **Partial match** | The interesting one. Five passages *just* clear the floor (**0.298** down to **0.264**, against a floor of 0.25) from `/best-practices/security` and `/guide/components/styling` - they discuss styling, so they are weakly related. But the model correctly replies *"The provided passages do not contain a definition or explanation of CSS"* and cites **nothing**. |
 
 Why the third case matters: there are **two independent defences** against confident nonsense, and it exercises the second one.
 
 1. The **similarity floor** in `selectChunks()` rejects passages that aren't close enough. This is what handles `got milk?`.
 2. The **grounding instruction** in the system prompt tells the model to answer only from the supplied passages and to say so when they don't cover the question. This is what handles `what is CSS?`, where retrieval was weakly positive but the content genuinely wasn't there.
 
-A system with only the first defence would answer `what is CSS?` from the model's own training data, sounding authoritative while citing two Angular pages that never mentioned CSS. Retrieval returning something is not the same as retrieval returning something *useful*, and the prompt has to assume it might not have.
+A system with only the first defence would answer `what is CSS?` from the model's own training data, sounding authoritative while citing Angular security and styling pages that never defined CSS. Retrieval returning something is not the same as retrieval returning something *useful*, and the prompt has to assume it might not have.
+
+Note that absolute similarity scores are lower than you might expect (a strong match sits near 0.47, not 0.9). That is normal and not a defect: passages are ~1,200 characters, so a broad question like *"what is Angular?"* only ever overlaps part of any single passage. What matters is the **gap** between a real match and noise, which here is roughly 0.47 versus 0.26.
 
 Environment configuration:
 - Copy `.env.sample` to `.env` and set `OPENAI_API_KEY` there.
 - `.env` is ignored by git, so your secret key is not committed.
 - If you prefer, you can also set `OPENAI_API_KEY` directly in your shell before running the backend or embeddings build.
 
-Verifying the vector store:
-- Run `npm run build-embeddings` to build `docs/angular/embeddings.json` from the downloaded docs.
-- Run `npm run test:unit` to verify the vector store file exists and contains valid numeric embeddings.
+The docs corpus and vector store:
+- `npm run download-docs` reads `https://angular.dev/sitemap.xml` and downloads the sections listed in `SECTION_ALLOWLIST` in `scripts/fetch-angular-docs.js`. Currently **134 pages** across Signals, Components, Templates, Directives, DI, Forms, Routing, HTTP, Pipes, Best practices and the essentials. Widening the corpus is a one-line edit to that array.
+- `npm run build-embeddings` produces two files, both gitignored because they are regenerable:
+  - `docs/angular/chunks.json` - passage metadata and text (~1.4 MB)
+  - `docs/angular/vectors.bin` - raw Float32 vectors, unit-normalised (~2.3 MB)
+- Roughly **1,136 passages** at 512 dimensions. Storing vectors as raw Float32 rather than JSON numbers keeps this at 2.3 MB; the same data as JSON would be around 45 MB and would need parsing on every server start.
+- `npm run test:unit` runs the offline suites: chunking, vector maths, prompt assembly and the citation guard.
 
 Notes about the dev proxy and API:
 - The Angular dev server is configured with `proxy.conf.json` so frontend calls to `/api/*` are forwarded to `http://localhost:3000` during development.

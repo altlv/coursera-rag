@@ -25,7 +25,8 @@ const EMBEDDING_MODEL = 'text-embedding-3-small';
 const app = Fastify({ logger: true });
 const DOCS_ROOT = path.resolve(__dirname, '../docs/angular');
 const STRUCTURE_FILE = path.join(DOCS_ROOT, 'structure.json');
-const EMBEDDINGS_FILE = path.join(DOCS_ROOT, 'embeddings.json');
+const CHUNKS_FILE = path.join(DOCS_ROOT, 'chunks.json');
+const VECTORS_FILE = path.join(DOCS_ROOT, 'vectors.bin');
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
@@ -97,37 +98,46 @@ async function loadDocsPages() {
  * Vectors are unit-normalised here, once, at load. That is what allows query
  * time to be a plain dot product instead of a full cosine similarity.
  */
+/*
+ * Load the vector store: metadata from chunks.json, vectors from vectors.bin.
+ *
+ * vectors.bin is raw Float32, row-major, so chunk i occupies
+ * [i*dims, (i+1)*dims). Reading it is a file read and a typed-array view over
+ * the buffer - no JSON parsing of ~950 x 512 numbers.
+ *
+ * The vectors were unit-normalised at build time, which is what lets
+ * selectChunks() use a plain dot product instead of a full cosine similarity.
+ */
 async function loadVectorStore() {
   if (vectorStore !== null) {
     return vectorStore;
   }
 
   try {
-    const raw = JSON.parse(await fs.readFile(EMBEDDINGS_FILE, 'utf8'));
-    const sourceChunks = raw.chunks || [];
-    if (sourceChunks.length === 0) {
-      vectorStore = undefined;
-      return vectorStore;
+    const meta = JSON.parse(await fs.readFile(CHUNKS_FILE, 'utf8'));
+    const buffer = await fs.readFile(VECTORS_FILE);
+    const { dimensions, chunks } = meta;
+
+    const expectedBytes = chunks.length * dimensions * Float32Array.BYTES_PER_ELEMENT;
+    if (buffer.byteLength !== expectedBytes) {
+      // The two files must have come from the same build. Mismatched vectors
+      // would still "work" and quietly return nonsense, so fail loudly instead.
+      throw new Error(
+        `vectors.bin is ${buffer.byteLength} bytes but chunks.json implies ` +
+          `${expectedBytes} (${chunks.length} chunks x ${dimensions} dims). ` +
+          `Re-run: npm run build-embeddings`,
+      );
     }
 
-    const dimensions = sourceChunks[0].embedding.length;
-    const vectors = new Float32Array(sourceChunks.length * dimensions);
-    const chunks = [];
+    const vectors = new Float32Array(
+      buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+    );
 
-    for (let i = 0; i < sourceChunks.length; i += 1) {
-      const chunk = sourceChunks[i];
-      vectors.set(normalizeVector(chunk.embedding), i * dimensions);
-      chunks.push({
-        id: chunk.id,
-        title: chunk.title,
-        path: chunk.path,
-        url: chunk.url,
-        text: chunk.text,
-      });
-    }
-
-    vectorStore = { model: raw.model, dimensions, chunks, vectors };
-    app.log.info(`Vector store loaded: ${chunks.length} chunks x ${dimensions} dims`);
+    vectorStore = { model: meta.model, dimensions, chunks, vectors };
+    app.log.info(
+      `Vector store: ${chunks.length} chunks x ${dimensions} dims from ${meta.pageCount} pages ` +
+        `(${meta.model})`,
+    );
   } catch (error) {
     app.log.warn(`No usable vector store (${error.message}); lexical search only.`);
     vectorStore = undefined;

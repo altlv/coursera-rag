@@ -90,22 +90,22 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Fix the chunking bug',
         detail:
-          'Whitespace normalisation stripped the newlines that chunking splits on, so every page became one chunk of up to 53,547 characters. Questions currently cost ~10,000 prompt tokens each because whole pages are sent as context.',
-        status: 'todo',
+          'Whitespace normalisation stripped the newlines that chunking splits on, so every page became one chunk of up to 53,547 characters and the size limit was never enforced. Passages are now capped at 1,200 characters with 150 of overlap, which cut a question from ~10,400 prompt tokens to ~1,300.',
+        status: 'done',
         where: 'server/rag.js chunkText()',
       },
       {
         title: 'Binary vector storage',
         detail:
-          'Store metadata as JSON and vectors as raw Float32 at 512 dimensions. Keeps the store near 3 MB instead of the 45 MB the current format would reach once chunking is fixed.',
-        status: 'todo',
+          'Metadata as JSON, vectors as raw Float32 at 512 dimensions and unit-normalised at build time. 1,136 passages occupy 2.3 MB; the same data as JSON numbers would be roughly 45 MB and need parsing on every server start.',
+        status: 'done',
         where: 'docs/angular/chunks.json + vectors.bin',
       },
       {
         title: 'Expand the docs corpus',
         detail:
-          'Only 23 pages are indexed and none of the core guides are among them. The scraper reads the sidebar from one page, but collapsed nav sections render empty, so Signals, Components, Templates, Forms, Routing and HTTP were all missed. Switching to sitemap.xml brings in roughly 127 pages.',
-        status: 'todo',
+          'Was 23 pages with none of the core guides. The scraper read the sidebar from a single page, but angular.dev renders collapsed nav sections with no children, so Signals, Components, Templates, Forms, Routing, HTTP and DI were all missed. Now reads sitemap.xml against an allowlist: 134 pages, and "what is a signal?" retrieves /guide/signals first instead of AI-tooling pages.',
+        status: 'done',
         where: 'scripts/fetch-angular-docs.js',
       },
     ],
@@ -170,11 +170,11 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'GET /api/docs/list',
       },
       {
-        title: 'Recursive docs tree',
+        title: 'Fix dead links in the docs sidebar',
         detail:
-          'The sidebar renders only two levels and shows pathless nav entries as dead links.',
-        status: 'todo',
-        where: 'src/app/docs.component.html',
+          'The nav tree had 28 entries with no path, which rendered as links to /docs?path=undefined. The rebuilt scraper groups pages under section headings where every leaf carries a real path, so there are now zero dead links.',
+        status: 'done',
+        where: 'scripts/fetch-angular-docs.js buildStructure()',
       },
     ],
   },
