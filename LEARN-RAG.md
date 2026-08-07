@@ -252,7 +252,46 @@ It signals that with an explicit `NO_ANSWER_IN_DOCS` sentinel. The tempting alte
 
 Any citation pointing outside the supplied range is stripped. A model citing `[7]` when given 4 passages is inventing a source, and **an unchecked citation is worse than none, because it looks verified**.
 
-Note what this does *not* check: that the claim actually came from passage *n*. Range, not attribution.
+That is a check on *range*. Attribution — whether the claim actually came from passage *n* — is a separate and harder question, below.
+
+### Attribution: checking the citation points at the right passage
+
+Range leaves the more misleading failure open. A model can cite `[1]` for something it read in `[3]` and the answer looks properly sourced. Measured on a real answer:
+
+> `<ng-container>` … is useful for applying structural directives like `*ngIf` and `*ngFor` **[5]**
+
+Passage `[5]` was `/guide/components/content-projection`. **None of its 7 passages mention `ngIf`** — the claim came from `[2]`, the `ng-container` page. The citation was in range, so the existing guard passed it.
+
+**Attribution is checked on code identifiers, not prose.** This is a deliberate scope limit. Prose is legitimately paraphrased, so lexical overlap on prose measures writing style more than grounding. API names are not paraphrased: `viewChild()` is either in the passage or it is not, and a misattributed API name is the case that actually sends someone to the wrong page. The corpus supports it — 1,179 of 2,276 distinct identifiers appear in exactly one passage.
+
+The design principle is an **asymmetry**: a misattribution is only reported when the identifier is present in *some* supplied passage but absent from the cited one. That makes it precise by construction, because an invented example variable is in no passage and so has no "correct" passage to point at. Both error directions exist, but they are not equally bad — **telling a user that a correct answer is badly sourced is worse than missing one that is**, so the check is built to under-report.
+
+Two further decisions:
+
+- **Extraction is conservative, matching is liberal.** Only unmistakable code shapes become claims (`@Component`, `signal()`, `provideRouter`, `HttpClient`), while a passage writing "the Component decorator" still counts as containing `@Component`. Both settings push the same way: away from inventing findings.
+- **It reports; it never rewrites.** Silently moving a citation to whichever passage contains the word would manufacture the appearance of grounding rather than verify it. A finding caps confidence at `low` and is logged.
+
+**What it does not cover.** Prose-only claims, and it is thin: 27 answers produced only 19 identifier claims. Many answers are prose throughout, and those go unchecked entirely.
+
+**Attribution defects are stochastic.** Re-running the `ng-container` question gave a correctly-cited answer — same passages, same prompt, different sampling. So a clean run is not evidence an answer is well-attributed, which is an argument for checking on every request rather than in a test.
+
+### The ungrounded-mention check that measurement rejected
+
+The companion idea: flag a real Angular API appearing in *no* supplied passage, as evidence the model answered from memory. That needs some notion of "this is a real API", and corpus membership was the obvious proxy.
+
+Over 30 questions it produced 2 findings, **both false positives** — `mySignal` and `DataService`. Both are example names. Both are in the corpus, because Angular's docs use example names too.
+
+Distinct-page count was the obvious repair, and it fails as well:
+
+| Identifier | Pages | |
+| --- | --- | --- |
+| `signal`, `takeUntilDestroyed`, `@HostListener` | 2 | genuine APIs |
+| `mySignal`, `DataService` | 3 | example names |
+| `viewChild`, `HttpClient` | 11 | genuine APIs |
+
+**The rarest real APIs are rarer than the example names**, so no threshold separates them. Exactly the shape of [the paraphrase threshold](#the-threshold-that-could-not-exist) — a second instance of the same lesson, which is why it is worth recording twice: an intuitive proxy can be measured, and the measurement can say the idea is not merely mistuned but impossible.
+
+It is **off, not deleted** — the same treatment as MMR. The machinery is sound and a corpus without example names everywhere would benefit. The page counts are pinned in a test, so the idea is not quietly retried.
 
 ### Contradictions: the guard's blind spot
 
@@ -477,7 +516,7 @@ The same reasoning drives provider handling. A key can be present and unusable �
 
 Kept deliberately, because a list of known gaps is more useful than a claim of completeness:
 
-- **Citation attribution unverified.** `[n]` is checked to be *in range*, not that the claim actually came from passage *n*. A model can cite `[1]` for something it read in `[3]` and nothing notices. Arguably the last real integrity gap.
+- **Attribution is only checked on API names.** Narrowed, not closed. A misattributed *prose* claim still passes, and coverage is thin — 27 answers yielded 19 identifier claims, so answers that are prose throughout are unchecked. See [Attribution](#attribution-checking-the-citation-points-at-the-right-passage).
 - **Generated code is never validated.** Observed: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample. For a documentation assistant the code is often the whole answer, so a sample that does not compile is worse than prose that is merely vague.
 - **Code samples split across chunks.** An 80-line example lands in two passages; chunking splits on blank lines and knows nothing about fenced code.
 - **Retrieval doesn't guarantee both sides of an API pair.** Mitigated by naming supersessions in the prompt, but retrieval itself still surfaces one side at a time.
@@ -507,6 +546,10 @@ The RAG-specific knowledge above is useful. These are the transferable parts —
 **Parse, don't pattern-match.** A regex told me three separate times that the corpus contained a live `javascript:` URL. It was escaped text inside a code block — only a DOM parse can tell the difference. I made the same mistake three times because a regex is quicker to write than it is to be right.
 
 **Test against the weakest configuration, not the default.** Prompt injection was resisted by `gpt-4o-mini` and obeyed by `llama-3.3-70b`. Testing only the default model would have concluded there was no vulnerability. Whatever your system *permits* determines its security, not what it typically does.
+
+**Decide which error direction you are willing to make.** For attribution, a false positive tells a user that a correct answer is badly sourced, while a miss just leaves one claim unchecked. Those are not symmetric, so the check extracts conservatively and matches liberally — both settings push it toward under-reporting. "Which mistake would I rather make" is a design input, not a postscript.
+
+**A check that never fires looks exactly like a check that works.** My first attribution run reported 0 problems across 30 questions. The cause was a wrong call signature returning `[]` silently, not clean answers. That is why the script reports how many claims it *checked* alongside how many it flagged — and why the retrieval function now throws on a malformed argument instead of returning empty.
 
 **Numbers do not transfer between comparison types.** I chose a 0.93 similarity threshold for grouping paraphrases, reasoning from question-to-*passage* matching where 0.47 is a strong match. Question-to-*question* similarity is a different distribution entirely — paraphrases scored 0.478 while unrelated questions reached 0.712. Same metric, incomparable scales.
 

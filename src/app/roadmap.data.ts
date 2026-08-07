@@ -333,8 +333,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Verify citation attribution, not just range',
         detail:
-          'The guard checks that [n] refers to a passage that was supplied. It does not check that the claim actually came from passage n - a model can cite [1] for something it read in [3], and nothing notices.',
-        status: 'todo',
+          'The old guard only checked that [n] was a passage that had been supplied, so a model could cite [1] for something it read in [3] and the answer looked properly sourced. Attribution is now checked on code identifiers rather than prose - deliberately, because prose is legitimately paraphrased while an API name is either in the passage or not, and 1,179 of 2,276 identifiers in this corpus appear in exactly one passage. It caught a real defect: an *ngIf claim credited to /guide/components/content-projection, none of whose 7 passages mention ngIf. A finding caps confidence at low and is logged; the answer is never rewritten, since silently moving a citation to whichever passage contains the word would manufacture the appearance of grounding rather than verify it. Two limits stated honestly: prose-only claims are unchecked, and coverage is thin at 19 identifier claims across 27 answers. The companion ungrounded-mention check was measured and turned OFF - it produced 2 findings, both false positives, and no page-count threshold separates real APIs from example names because signal, takeUntilDestroyed and @HostListener all appear on 2 pages while mySignal and DataService appear on 3.',
+        status: 'done',
       },
     ],
   },

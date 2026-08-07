@@ -1,5 +1,6 @@
 const { supersededApiNote } = require('./api-pairs');
 const { neutralisePassages, looksInjected } = require('./injection-guard');
+const { verifyAttribution } = require('./answer-checks');
 
 /*
  * The RAG pipeline, as pure and testable functions.
@@ -460,6 +461,20 @@ function selectChunksMultiQuery(queries, store, options = {}) {
   const { k = 5, floor = 0.25, maxPerPage = 2, rrfK = 60, mmrLambda = 1 } = options;
 
   if (!store || !store.chunks || store.chunks.length === 0) return [];
+
+  /*
+   * A malformed `queries` used to fall through the empty check and return [], which
+   * is indistinguishable from "nothing matched". A caller passing an options object
+   * here by mistake got zero results, no error, and a script that reported 0
+   * answers across 30 questions as though the corpus had failed to match any of
+   * them. Empty is a legitimate answer; the wrong TYPE is a bug, so it throws.
+   */
+  if (queries !== undefined && queries !== null && !Array.isArray(queries)) {
+    throw new TypeError(
+      `selectChunksMultiQuery expects an array of queries, received ${typeof queries}. ` +
+        'Signature is (queries, store, options).',
+    );
+  }
   if (!queries || queries.length === 0) return [];
 
   const dims = store.dimensions;
@@ -819,8 +834,20 @@ function extractCitations(answer) {
  *  - Citations pointing outside the supplied range are stripped. A model citing
  *    [7] when given 4 passages is inventing a source, and an unchecked citation
  *    is worse than none because it looks verified.
+ *  - Citations are then checked for ATTRIBUTION, not just range: does the passage
+ *    a sentence credits actually contain the API names in that sentence? See
+ *    answer-checks.js. The result is reported and lowers confidence; it does not
+ *    rewrite the answer, because the check is a heuristic and silently moving a
+ *    citation would be a worse failure than flagging a doubtful one.
  */
-async function generateAnswer({ question, chunks, llm, history = [], provider }) {
+async function generateAnswer({
+  question,
+  chunks,
+  llm,
+  history = [],
+  provider,
+  knownIdentifiers = null,
+}) {
   if (!chunks || chunks.length === 0) {
     return {
       status: 'refused',
@@ -873,11 +900,23 @@ async function generateAnswer({ question, chunks, llm, history = [], provider })
     .reduce((acc, n) => acc.replaceAll(`[${n}]`, ''), text)
     .replace(/[ \t]{2,}/g, ' ');
 
+  /*
+   * Run attribution on the cleaned text, so a stripped out-of-range citation
+   * cannot also be reported as a misattribution - one defect, one finding.
+   */
+  const attribution = verifyAttribution({ answer, chunks, knownIdentifiers });
+
   return {
     status: 'answered',
     answer: answer.trim(),
     citations: valid,
     droppedCitations: invalid,
+    attribution: {
+      ok: attribution.ok,
+      checked: attribution.checked,
+      misattributed: attribution.misattributed,
+      unsupported: attribution.unsupported,
+    },
     refused: false,
     llmCalled: true,
   };
@@ -910,18 +949,24 @@ async function generateAnswer({ question, chunks, llm, history = [], provider })
  *      out; uniformly flat scores mean the corpus had no strong opinion.
  *   4. distinct pages - agreement across several pages is corroboration, whereas
  *      everything from one page may just be one well-matched paragraph.
+ *   5. attribution - whether cited passages actually contain the API names
+ *      credited to them. This one only ever subtracts. A citation that looks
+ *      verified but points at the wrong passage is worse than a vague answer,
+ *      so it caps the level rather than merely costing a point.
  *
  * Reported as high/medium/low with the reasons attached. Deliberately not a
  * percentage: the inputs do not support that kind of precision, and a number
  * like "73% confident" invites trust it has not earned.
  */
-function assessConfidence({ status, results = [], citations = [] }) {
+function assessConfidence({ status, results = [], citations = [], attribution = null }) {
   const signals = {
     status,
     topScore: results[0]?.score ?? 0,
     scoreGap: 0,
     distinctPages: new Set(results.map((r) => r.path)).size,
     citationCount: citations.length,
+    misattributed: attribution?.misattributed?.length ?? 0,
+    unsupported: attribution?.unsupported?.length ?? 0,
   };
 
   if (results.length > 1) {
@@ -975,7 +1020,32 @@ function assessConfidence({ status, results = [], citations = [] }) {
     reasons.push('Top match stands clearly above the rest');
   }
 
-  const level = points >= 4 ? 'high' : points >= 2 ? 'medium' : 'low';
+  let level = points >= 4 ? 'high' : points >= 2 ? 'medium' : 'low';
+
+  /*
+   * Attribution only ever subtracts, and it caps rather than deducting points.
+   * The reason is that the other signals measure how well retrieval went, while
+   * this one says a citation may be pointing at the wrong page - and citation
+   * accuracy is the specific thing a confidence badge invites people to rely on.
+   * An answer with four strong signals and a bad citation is not "slightly less
+   * high"; it is not trustworthy in the way the badge implies.
+   */
+  if (signals.misattributed > 0) {
+    level = 'low';
+    reasons.push(
+      signals.misattributed === 1
+        ? 'One citation may point to the wrong passage'
+        : `${signals.misattributed} citations may point to the wrong passage`,
+    );
+  } else if (signals.unsupported > 0) {
+    // Weaker finding: a real API the supplied passages never mentioned. Suggests
+    // the model drew on its own memory, which the grounding instruction forbids.
+    if (level === 'high') level = 'medium';
+    reasons.push(
+      `Mentions ${signals.unsupported === 1 ? 'an API' : `${signals.unsupported} APIs`} not present in the cited passages`,
+    );
+  }
+
   return { level, reasons, signals };
 }
 

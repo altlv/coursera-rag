@@ -13,6 +13,7 @@ const {
   HISTORY_EXCHANGES,
   REFUSAL,
 } = require('./rag');
+const { extractIdentifiers } = require('./answer-checks');
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
 const { createHealthTracker } = require('./provider-health');
 const { createQuestionLog } = require('./question-log');
@@ -85,6 +86,48 @@ let docsPages = null;
 let vectorStore = null;
 
 /*
+ * The ungrounded-mention check: implemented, measured, and OFF.
+ *
+ * The idea was to flag a real Angular API that appears in no supplied passage -
+ * evidence the model answered from its own memory rather than the docs. Telling
+ * that apart from a variable invented for an example needs some notion of "this
+ * name is a real API", and corpus membership was the obvious proxy.
+ *
+ * Measured over 30 questions it produced 2 findings, BOTH false positives:
+ * `mySignal` and `DataService`. Both are example names - and both are in the
+ * corpus, because Angular's docs use example names too, so the proxy does not
+ * separate what it was supposed to.
+ *
+ * Distinct-page count was the obvious repair and it does not work either. Real
+ * APIs span 2-11 pages (`signal`, `takeUntilDestroyed` and `@HostListener` all
+ * sit at 2), while both false positives sit at 3 - above three genuine APIs. The
+ * distributions overlap, so no threshold exists. Same shape as the paraphrase
+ * threshold in question-log.js, and rejected for the same reason.
+ *
+ * So it is off, not deleted: the machinery is sound and a corpus that does not
+ * riddle its documentation with example names would benefit. Set this to true and
+ * run `npm run check-attribution` to see the false positives for yourself.
+ *
+ * The misattribution check is unaffected and stays on. It is precise by
+ * construction - it requires the identifier to be present in some supplied
+ * passage - and it found a genuine defect: an *ngIf claim credited to a
+ * content-projection passage, none of whose 7 passages mention ngIf.
+ */
+const UNGROUNDED_CHECK_ENABLED = false;
+
+/** Every code identifier appearing anywhere in the corpus. Cleared with the other caches. */
+let corpusIdentifiers = null;
+
+function getCorpusIdentifiers(store) {
+  if (corpusIdentifiers) return corpusIdentifiers;
+  corpusIdentifiers = new Set();
+  for (const chunk of store?.chunks ?? []) {
+    for (const identifier of extractIdentifiers(chunk.text)) corpusIdentifiers.add(identifier);
+  }
+  return corpusIdentifiers;
+}
+
+/*
  * Caches are invalidated when the corpus changes on disk.
  *
  * Without this, `npm run download-docs` or `docs:update` appears to do nothing:
@@ -118,6 +161,7 @@ async function invalidateIfCorpusChanged() {
       docsStructure = null;
       docsPages = null;
       vectorStore = null;
+      corpusIdentifiers = null;
       app.log.info('Corpus changed on disk - caches cleared, reloading on next request.');
     }
   } catch {
@@ -627,6 +671,7 @@ app.post('/api/chat', async (request, reply) => {
   let citations = [];
   let usage;
   let status;
+  let attribution = null;
   let llmInfo = null;
 
   // A per-request override, so providers can be compared without a restart:
@@ -652,15 +697,32 @@ app.post('/api/chat', async (request, reply) => {
         llm,
         history,
         provider: llm.provider,
+        knownIdentifiers:
+          UNGROUNDED_CHECK_ENABLED && vectorStore ? getCorpusIdentifiers(vectorStore) : null,
       });
       status = generated.status;
       answer = generated.answer;
       citations = generated.citations;
+      attribution = generated.attribution ?? null;
       usage = llm.lastUsage;
       health.markOk(llm.provider);
 
       if (generated.droppedCitations?.length) {
         app.log.warn(`Dropped hallucinated citations: ${generated.droppedCitations.join(', ')}`);
+      }
+
+      /*
+       * Logged rather than silently folded into confidence, because these are the
+       * cases worth reading later: a misattribution names both the passage the
+       * model credited and the one that actually contains the API.
+       */
+      for (const claim of attribution?.misattributed ?? []) {
+        app.log.warn(
+          `Misattributed citation: "${claim.identifier}" credited to [${claim.cited.join('][')}] but present in [${claim.actual.join('][')}]`,
+        );
+      }
+      for (const claim of attribution?.unsupported ?? []) {
+        app.log.warn(`Ungrounded API mention: "${claim.identifier}" is in no supplied passage`);
       }
     } catch (error) {
       /*
@@ -703,7 +765,7 @@ app.post('/api/chat', async (request, reply) => {
    * Log the question. NOT awaited: logging must never add latency to an answer,
    * and its failures are already swallowed internally.
    */
-  const confidence = assessConfidence({ status, results, citations });
+  const confidence = assessConfidence({ status, results, citations, attribution });
 
   /*
    * Awaited only to obtain the event id, so the client can attach a rating to this
@@ -718,6 +780,12 @@ app.post('/api/chat', async (request, reply) => {
     vector: results.queryVector,
     status,
     confidence: confidence?.level,
+    /*
+     * Counts only, not the offending sentences: the log deliberately stores
+     * metadata rather than answer text, and a sentence is answer text.
+     */
+    misattributed: attribution?.misattributed?.length || undefined,
+    ungrounded: attribution?.unsupported?.length || undefined,
     provider: llmInfo?.provider,
     model: llmInfo?.model,
     retrieved: results,
@@ -742,6 +810,13 @@ app.post('/api/chat', async (request, reply) => {
     // Composite, deliberately not derived from similarity alone - see
     // assessConfidence() for why a score-based badge would mislead.
     confidence,
+    /*
+     * Reported rather than acted on. The answer text is never rewritten to "fix" a
+     * citation: the check is a heuristic, and silently moving a citation to the
+     * passage that happens to contain the word would manufacture the appearance of
+     * grounding rather than verify it.
+     */
+    attribution,
     sources,
     retrieved: results.map((result) => ({
       title: result.title,

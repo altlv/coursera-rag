@@ -131,4 +131,69 @@ describe('assessConfidence', () => {
       }
     }
   });
+
+  /*
+   * Attribution is the one signal that only ever subtracts, and it CAPS the level
+   * rather than deducting a point. The reasoning: the other signals describe how
+   * well retrieval went, whereas a misattributed citation means the badge is
+   * vouching for a source that does not support the claim - which is the specific
+   * thing a confidence indicator invites someone to rely on.
+   */
+  describe('attribution lowers confidence', () => {
+    // Deliberately an otherwise-perfect answer: strong score, wide gap, several
+    // pages, two citations. Everything says 'high' except attribution.
+    const strong = {
+      status: 'answered',
+      results: results(0.62, 0.3, 0.28, 0.27),
+      citations: [1, 2],
+    };
+
+    it('rates a well-supported answer high when attribution is clean', () => {
+      const c = assessConfidence({
+        ...strong,
+        attribution: { misattributed: [], unsupported: [] },
+      });
+      expect(c.level).toBe('high');
+    });
+
+    it('caps an otherwise-high answer at low when a citation is misattributed', () => {
+      const c = assessConfidence({
+        ...strong,
+        attribution: { misattributed: [{ identifier: 'viewchild' }], unsupported: [] },
+      });
+      expect(c.level).toBe('low');
+      expect(c.reasons.join(' ')).toMatch(/wrong passage/i);
+    });
+
+    it('only steps down one level for an ungrounded API mention', () => {
+      // Weaker finding than misattribution: the model named a real API the
+      // passages never mentioned. Suggestive of memory rather than a wrong source.
+      const c = assessConfidence({
+        ...strong,
+        attribution: { misattributed: [], unsupported: [{ identifier: 'takeuntildestroyed' }] },
+      });
+      expect(c.level).toBe('medium');
+      expect(c.reasons.join(' ')).toMatch(/not present in the cited passages/i);
+    });
+
+    it('reports misattribution rather than the weaker finding when both occur', () => {
+      const c = assessConfidence({
+        ...strong,
+        attribution: {
+          misattributed: [{ identifier: 'viewchild' }],
+          unsupported: [{ identifier: 'takeuntildestroyed' }],
+        },
+      });
+      expect(c.level).toBe('low');
+      expect(c.reasons.join(' ')).toMatch(/wrong passage/i);
+      expect(c.reasons.join(' ')).not.toMatch(/not present in the cited passages/i);
+    });
+
+    it('behaves exactly as before when no attribution is supplied', () => {
+      // The parameter is optional, so an older caller must not be penalised for
+      // omitting it - absence of evidence is not a finding.
+      expect(assessConfidence(strong).level).toBe('high');
+      expect(assessConfidence(strong).signals.misattributed).toBe(0);
+    });
+  });
 });
