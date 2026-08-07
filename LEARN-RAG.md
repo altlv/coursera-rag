@@ -285,6 +285,52 @@ Two rules that keep it honest: thresholds sit *below* current performance, so th
 
 ---
 
+## Logging what people actually ask
+
+The eval sets are 30 questions someone invented. Real usage is the only source of what users genuinely ask — and especially of the phrasings that **fail**, which are the cases worth adding to the held-out set.
+
+### Append-only events, derived aggregates
+
+```
+data/questions.jsonl        append-only, one event per ask   ← source of truth
+data/questions.index.json   clusters and counts             ← rebuildable
+```
+
+**Deduplicating at write time is irreversible.** Pick a similarity threshold, run for a month, discover it was merging genuinely different questions, and the original data is gone. Keeping raw events means the grouping rule can change and the index simply gets re-derived.
+
+That decision is what made the next section survivable.
+
+### The threshold that could not exist
+
+The plan was to group paraphrases by cosine similarity between question vectors — nearly free, since the vector already exists from retrieval. I picked 0.93, reasoning that it should be "high, to avoid false merges".
+
+Then I measured it, across 30 known-distinct eval questions (435 pairs) plus real logged paraphrases:
+
+| | Similarity |
+| --- | --- |
+| Two genuinely **different** questions, max | **0.712** — *"how do I validate a form?"* vs *"how do I write a test that checks a form control became invalid?"* |
+| A genuine **paraphrase** | **0.478** — *"what are signals?"* vs *"explain Angular signals to me"* |
+| Unrelated questions, median | 0.227 |
+
+**The distributions overlap completely.** A distinct question can be *more* similar than a paraphrase, so no threshold separates them: above 0.712 nothing merges, below 0.478 unrelated questions do.
+
+The only pair that scored highly — 0.930 — was *"what are signals?"* vs *"What are signals??"*: identical text differing by punctuation, which text normalisation already catches for free.
+
+**So semantic merging adds nothing at any safe threshold, and it is off by default.**
+
+Why the intuition failed is the interesting part. 0.93 was ported from **question-to-passage** matching, where a strong match sits near 0.47 against a floor of 0.25. **Question-to-question similarity is a different distribution entirely** — short texts, with no long passage to anchor the comparison. Numbers do not transfer between comparison types just because both are cosine similarities.
+
+What is left: exact grouping after normalisation (case, spacing, trailing punctuation), each phrasing kept with its own count, and the analysis script surfacing likely-related clusters for a human to judge. Automation would have been wrong here, and only measurement revealed that.
+
+### Practices worth copying
+
+- **Never break the request.** Logging failures are swallowed. A full disk must not stop the chatbot answering.
+- **Redact before writing.** Questions are free text, so a user can paste a key into one. `sk-…`, `AIza…`, bearer tokens — stripped before anything hits disk. *This is not hypothetical: a key was pasted into a chat during this project's development.*
+- **Schema version field.** The log outlives the code that wrote it.
+- **Metadata, not answers.** Paths, scores, status, confidence, model, tokens, latency — enough to reconstruct the retrieval decision without storing the largest and most sensitive field.
+- **Write-then-rename** for the derived index, so a crash mid-write cannot truncate it.
+- **Gitignored, with a retention decision** pending before any exposure.
+
 ## Silent failures
 
 The failures worth engineering against are the ones that return plausible output while being wrong. Embedding-space mismatch is guarded six ways:

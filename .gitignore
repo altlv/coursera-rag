@@ -54,3 +54,7 @@ docs/angular/vectors.bin
 # System files
 .DS_Store
 Thumbs.db
+
+# Question log: user-submitted text. Never commit it, and decide a retention
+# policy before this is ever exposed beyond localhost.
+/data/

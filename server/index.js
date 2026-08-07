@@ -15,6 +15,7 @@ const {
 } = require('./rag');
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
 const { createHealthTracker } = require('./provider-health');
+const { createQuestionLog } = require('./question-log');
 
 dotenv.config();
 
@@ -69,6 +70,15 @@ const chatProvider = resolveProvider(undefined, process.env);
  * stop a provider being offered; transient ones only mark it degraded.
  */
 const health = createHealthTracker();
+
+/*
+ * What people actually ask.
+ *
+ * The eval sets are 30 invented questions; real usage is the only way to learn the
+ * phrasings that fail. Writes are fire-and-forget and every failure is swallowed -
+ * a full disk must never stop the chatbot answering. Disable with QUESTION_LOG=off.
+ */
+const questionLog = createQuestionLog({ logger: app.log });
 
 let docsStructure = null;
 let docsPages = null;
@@ -296,11 +306,19 @@ async function searchVectors(queries, limit = TOP_K) {
     })),
   );
 
-  return selectChunksMultiQuery(embedded, store, {
+  const results = selectChunksMultiQuery(embedded, store, {
     k: limit,
     floor: SCORE_FLOOR,
     maxPerPage: MAX_PER_PAGE,
   });
+
+  /*
+   * Hand back the vector of the question AS ASKED, so question logging can group
+   * semantically-similar questions without a second embedding call. Retrieval has
+   * already paid for it.
+   */
+  results.queryVector = embedded[0]?.vector;
+  return results;
 }
 
 function buildSnippet(contentText, query) {
@@ -437,6 +455,7 @@ app.get('/api/providers', async () => {
 });
 
 app.post('/api/chat', async (request, reply) => {
+  const startedAt = Date.now();
   const { question } = request.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
     reply.status(400);
@@ -605,6 +624,27 @@ app.post('/api/chat', async (request, reply) => {
           originalUrl: result.url,
         }));
 
+  /*
+   * Log the question. NOT awaited: logging must never add latency to an answer,
+   * and its failures are already swallowed internally.
+   */
+  const confidence = assessConfidence({ status, results, citations });
+
+  void questionLog.record({
+    question,
+    rewritten: rewrite?.rewritten,
+    // The query vector already exists from retrieval, so semantic grouping costs
+    // nothing extra.
+    vector: results.queryVector,
+    status,
+    confidence: confidence?.level,
+    provider: llmInfo?.provider,
+    model: llmInfo?.model,
+    retrieved: results,
+    tokens: usage?.total_tokens,
+    ms: Date.now() - startedAt,
+  });
+
   return {
     question,
     /** Set only when the follow-up was rewritten, so the UI can show what was searched. */
@@ -619,7 +659,7 @@ app.post('/api/chat', async (request, reply) => {
     usage,
     // Composite, deliberately not derived from similarity alone - see
     // assessConfidence() for why a score-based badge would mislead.
-    confidence: assessConfidence({ status, results, citations }),
+    confidence,
     sources,
     retrieved: results.map((result) => ({
       title: result.title,

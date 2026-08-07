@@ -17,7 +17,8 @@
     "list-models": "node ./scripts/list-models.js",
     "test:retrieval": "vitest run test/retrieval.test.mjs",
     "start-backend": "node ./server/index.js",
-    "eval": "node ./scripts/eval-retrieval.js"
+    "eval": "node ./scripts/eval-retrieval.js",
+    "questions": "node ./scripts/analyse-questions.js"
   },
   "private": true,
   "packageManager": "npm@11.17.0",
