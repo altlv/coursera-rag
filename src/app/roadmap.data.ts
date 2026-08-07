@@ -400,7 +400,7 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Held-out evaluation set',
         detail:
-          'Fifteen questions never used for tuning, targeting details in the middle of long pages and phrased to avoid echoing page titles. It earned its keep immediately: contextual chunking produced NO rank change on the golden set - which is saturated and cannot distinguish two stores - while showing hit@1 67 to 73% and MRR 0.789 to 0.822 here. Honest figures are hit@1 73%, hit@3 93%, MRR 0.822, against the golden set's flattering 100% and 1.000. Thresholds are regression guards set BELOW current performance, never targets.',
+          'Fifteen questions never used for tuning, targeting details in the middle of long pages and phrased to avoid echoing page titles. It earned its keep immediately: contextual chunking produced NO rank change on the golden set - which is saturated and cannot distinguish two stores - while showing hit@1 67 to 73% and MRR 0.789 to 0.822 here. Honest figures are hit@1 73%, hit@3 93%, MRR 0.822, against a flattering 100% and 1.000 from the golden set. Thresholds are regression guards set BELOW current performance, never targets.',
         status: 'done',
         where: 'test/holdout-set.mjs, test/holdout.test.mjs, scripts/eval-retrieval.js',
       },
