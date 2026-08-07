@@ -7,14 +7,17 @@
  *
  * Why not one JSON file, as before
  * -------------------------------
- * A 1536-float array serialises to roughly 30-45 KB of JSON text. The old store
- * held 23 chunks and was already 1.2 MB. Once chunking was fixed and the corpus
- * grew to ~950 chunks, the same format would have produced a ~45 MB file that
- * had to be JSON.parsed on every server start.
+ * A float is 4 bytes as binary and ~21 characters as JSON text, so writing the
+ * vectors out costs roughly 5x. The old store held 23 chunks at 1536 dimensions
+ * and was already 1.2 MB. Measured against the current corpus of 1,122 chunks:
  *
- * Raw Float32 is 4 bytes per dimension with no parsing at all - just read the
- * buffer. At 512 dimensions that is ~2 MB, and loading is a file read rather
- * than a parse.
+ *   JSON, 1536 dims (the old format)  36.2 MB
+ *   JSON, 512 dims                    12.1 MB
+ *   vectors.bin, Float32 @512          2.3 MB   <- chosen
+ *
+ * Raw Float32 needs no parsing at all - read the buffer and take a typed-array
+ * view over the same bytes. The JSON variants had to be JSON.parsed on every
+ * server start.
  *
  * Two further decisions worth knowing about:
  *

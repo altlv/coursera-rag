@@ -127,7 +127,7 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Binary vector storage',
         detail:
-          'Metadata as JSON, vectors as raw Float32. 1,122 passages occupy 2.2 MB; the same data as JSON numbers would be ~45 MB and need parsing on every start.',
+          'Metadata as JSON, vectors as raw Float32. Measured: 1,122 passages occupy 2.3 MB as binary, 12.1 MB as JSON at the same 512 dimensions, and 36.2 MB in the original 1536-dimension JSON format. Only the binary form avoids a JSON parse on every server start.',
         status: 'done',
         where: 'docs/angular/chunks.json + vectors.bin',
       },
@@ -313,7 +313,7 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Sanitise scraped HTML with an allowlist',
         detail:
-          'The docs viewer injects scraped markup with bypassSecurityTrustHtml, guarded only by removing script and style. An audit of all 114 pages found no live handlers - angular.dev\'s XSS examples are escaped inside code blocks - but that is a property of the source, not a control. Now an allowlist: five attributes survive, every on* handler is dropped by default, javascript: and data:text/html URLs are neutralised, and script/iframe/object/embed/form are removed. Two lessons: parse rather than pattern-match, since a regex reported a live javascript: URL three times on escaped text; and a display-only fix can be invisible to docs:update, which hashes contentText and reported 0 changes.',
+          'The docs viewer injects scraped markup with bypassSecurityTrustHtml, guarded only by removing script and style. An audit of all 114 pages found no live handlers - angular.dev\'s XSS examples are escaped inside code blocks - but that is a property of the source, not a control. Now an allowlist: the 17 attributes documentation markup needs survive, every on* handler is dropped by default, javascript: and data:text/html URLs are neutralised, and script/iframe/object/embed/form are removed. Two lessons: parse rather than pattern-match, since a regex reported a live javascript: URL three times on escaped text; and a display-only fix can be invisible to docs:update, which hashes contentText and reported 0 changes.',
         status: 'done',
         where: 'scripts/docs-source.js sanitizeElement()',
       },

@@ -65,7 +65,7 @@ Roughly 300 tokens. Big enough to hold a complete thought, small enough that a r
 
 A fact can straddle a boundary. Without overlap, *"signals are created with"* and *"the signal() function"* become two passages that each answer nothing.
 
-### Contextual chunking — the fix I could not prove
+### Contextual chunking — the fix the golden set could not see
 
 A mid-page passage was embedded with no trace of which page it came from:
 
@@ -104,7 +104,15 @@ If both vectors are already **unit length**, the denominator is 1 and cosine *is
 
 ### Storage: why not JSON
 
-A 1536-float array serialises to ~30–45 KB of JSON *text*. At 1,122 passages that is about **45 MB to parse on every server start**. Stored as raw `Float32` in a binary file it is **2.2 MB**, and loading is a file read plus a typed-array view — no parsing at all.
+A float costs 4 bytes as binary and about 21 characters as JSON text (`-0.023456789012345678`), so the same vector is roughly 5× larger written out. Measured on this store rather than estimated:
+
+| Format | Size at 1,122 passages |
+| --- | --- |
+| JSON, 512 dims | 12.1 MB — parsed on every server start |
+| JSON, 1536 dims (the original) | 36.2 MB |
+| **`vectors.bin`, raw `Float32` @512** | **2.3 MB** |
+
+Loading the binary form is a file read plus a typed-array view over the same bytes — no parsing at all.
 
 ### The failure that returns plausible numbers
 
@@ -436,7 +444,9 @@ The docs viewer injects scraped HTML with `bypassSecurityTrustHtml`. The origina
 
 An audit of all 114 pages found **no live event handlers and no `javascript:` URLs** — angular.dev's XSS examples are escaped inside `<code>` blocks, so they are inert text. The corpus was clean.
 
-**But that is a property of today's source, not a control.** One interactive demo added upstream, one widened allowlist, or one different corpus, and an `onerror=` would execute. So the blocklist became an **allowlist**: five attributes survive (`alt`, `class`, `href`, `id`, `title`), every `on*` handler is dropped by default, `javascript:`/`data:text/html` URLs are neutralised, and `script`/`iframe`/`object`/`embed`/`form`/`style` are removed outright. Anything unanticipated is dropped rather than passed through.
+**But that is a property of today's source, not a control.** One interactive demo added upstream, one widened allowlist, or one different corpus, and an `onerror=` would execute. So the blocklist became an **allowlist** of the 17 attributes documentation markup actually needs — `href`, `src`, `alt`, `title`, `class`, `id`, `lang`, `dir`, `colspan`, `rowspan`, `scope`, `width`, `height`, `loading`, `datetime`, `start`, `type`. Every `on*` handler is dropped by default, `javascript:`/`data:text/html` URLs are neutralised, and `script`/`iframe`/`object`/`embed`/`form`/`style` are removed outright.
+
+Note what is *not* on that list: `style` (overlay and hide page content), `srcdoc`, `formaction`, `xlink:href`. None of them had to be thought of — an allowlist drops the unanticipated by default, which is the whole reason to invert a blocklist rather than extend it.
 
 Two things worth stealing from this:
 
@@ -467,16 +477,44 @@ The same reasoning drives provider handling. A key can be present and unusable �
 
 Kept deliberately, because a list of known gaps is more useful than a claim of completeness:
 
-- **Retrieval doesn't guarantee both sides of an API pair.** The assistant will still sometimes present a legacy API as the only option.
-- **Generated code is never validated.** Observed: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample.
-- **Code samples split across chunks.**
-- **Prompt injection from documents** — `<script>` is stripped, text is not. Retrieved content is third-party input by definition.
-- **Citation attribution unverified** — range is checked, provenance is not.
-- **Lost in the middle** — models attend least to the middle of a long context; we pass passages by rank and ignore position.
-- **Confidence is provider-dependent.**
-- **No question logging**, so the eval sets remain 30 questions someone guessed.
+- **Citation attribution unverified.** `[n]` is checked to be *in range*, not that the claim actually came from passage *n*. A model can cite `[1]` for something it read in `[3]` and nothing notices. Arguably the last real integrity gap.
+- **Generated code is never validated.** Observed: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample. For a documentation assistant the code is often the whole answer, so a sample that does not compile is worse than prose that is merely vague.
+- **Code samples split across chunks.** An 80-line example lands in two passages; chunking splits on blank lines and knows nothing about fenced code.
+- **Retrieval doesn't guarantee both sides of an API pair.** Mitigated by naming supersessions in the prompt, but retrieval itself still surfaces one side at a time.
+- **Lost in the middle.** Models attend least to the middle of a long context. Passages carry a rank now, but their *position* is still ignored.
+- **Confidence is provider-dependent**, because it weights the model's own verdict most heavily.
+- **No spend ceiling and no rate limiting.** Low risk on localhost, real the moment it is exposed.
+- **Retrieval quality is honest but not good.** hit@1 73% on the held-out set means roughly one question in four does not put the best page first.
+
+Two entries were removed from this list only after being fixed — prompt injection and question logging. It is worth saying that they sat here as *known* gaps for a while first: writing a gap down is what made it a task rather than a vague unease.
 
 ---
+
+## Lessons about method
+
+The RAG-specific knowledge above is useful. These are the transferable parts — every one of them cost something to learn here.
+
+**A plausible fix can make things worse.** MMR is a standard, principled technique for exactly the problem I had. It reduced hit@3 from 93% to 80%. Principled does not mean applicable: MMR assumes redundancy is the problem, and mine was scarcity of one viewpoint.
+
+**Never evaluate on the data you tuned against.** The golden set reported hit@1 100%, hit@3 100%, MRR 1.000. The held-out set said hit@1 **73%**, hit@3 93%, MRR 0.822. The second is the truth; the gap between them is the cost of the mistake.
+
+**A saturated metric cannot detect change.** Contextual chunking produced *identical* golden-set numbers before and after. Not "a small improvement" — literally no rank changed. A metric at 100% has no room to tell you anything.
+
+**Your metric may not measure the thing you are fixing.** I spent two attempts trying to make the assistant show both sides of an API pair, judged by hit@3 — which asks whether the correct page ranked, not whether both APIs appeared. Even a working fix would have scored neutral-or-worse. I needed a different measurement, not a different algorithm.
+
+**A failing measurement is a claim about two things.** My verification script reported the `output()` case as broken; the regex was looking for `output(` while the answer said `output<void>()`. The check was wrong, not the code. Before believing a red result, check the instrument.
+
+**Parse, don't pattern-match.** A regex told me three separate times that the corpus contained a live `javascript:` URL. It was escaped text inside a code block — only a DOM parse can tell the difference. I made the same mistake three times because a regex is quicker to write than it is to be right.
+
+**Test against the weakest configuration, not the default.** Prompt injection was resisted by `gpt-4o-mini` and obeyed by `llama-3.3-70b`. Testing only the default model would have concluded there was no vulnerability. Whatever your system *permits* determines its security, not what it typically does.
+
+**Numbers do not transfer between comparison types.** I chose a 0.93 similarity threshold for grouping paraphrases, reasoning from question-to-*passage* matching where 0.47 is a strong match. Question-to-*question* similarity is a different distribution entirely — paraphrases scored 0.478 while unrelated questions reached 0.712. Same metric, incomparable scales.
+
+**When a wrong answer is indistinguishable from a right one, fail loudly.** Mismatched embedding spaces, truncated vector files, a stale eval fixture — all return plausible numbers and no error. Those deserve a thrown exception at the boundary, not a comment.
+
+**Keep the failures in the write-up.** Three sections of this file document things that did not work. They are the most useful parts, because a list of what worked reads as inevitable, and the reasoning is invisible.
+
+**Write down the gaps.** Prompt injection and question logging both sat in "What is still wrong" for a while before being fixed. Writing a gap down converts a vague unease into a task someone can pick up.
 
 ## Try this yourself
 

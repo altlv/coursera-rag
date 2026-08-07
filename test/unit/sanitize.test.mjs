@@ -118,4 +118,19 @@ describe('sanitizeElement', () => {
       expect(ALLOWED_ATTRIBUTES.has(risky)).toBe(false);
     }
   });
+
+  it('pins the exact allowlist, because widening it is a security decision', () => {
+    /*
+     * LEARN-RAG.md and roadmap.data.ts both quote this list. Pinning it means
+     * adding an attribute fails a test - which forces the question "is this one
+     * executable?" - rather than quietly making the documentation wrong.
+     */
+    expect([...ALLOWED_ATTRIBUTES].sort()).toEqual(
+      [
+        'alt', 'class', 'colspan', 'datetime', 'dir', 'height', 'href', 'id',
+        'lang', 'loading', 'rowspan', 'scope', 'src', 'start', 'title', 'type',
+        'width',
+      ].sort(),
+    );
+  });
 });
