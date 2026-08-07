@@ -146,9 +146,23 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'server/rag.js selectChunksMultiQuery()',
       },
       {
+        title: 'Contextual chunking: page title in the embedded text',
+        detail:
+          'A mid-page passage was embedded with no trace of which page it came from, while keyword scoring already saw the title - so the two halves of retrieval disagreed about what a passage was. Measurable only on the held-out set: hit@1 67 to 73%, MRR 0.789 to 0.822. The golden set reported no change whatsoever, which is exactly why the held-out set had to exist first.',
+        status: 'done',
+        where: 'server/build-vector-store.js',
+      },
+      {
+        title: 'Code-block-aware chunking',
+        detail:
+          'Chunking splits on blank lines and knows nothing about fenced code, so a long example is torn across two passages - verified with an 80-line sample landing in 2 chunks. Bad for a documentation assistant specifically, where the code IS the answer.',
+        status: 'todo',
+        where: 'server/rag.js chunkText()',
+      },
+      {
         title: 'Reranking',
         detail:
-          'Retrieve ~20 by vector then rerank to 5 with a cheap model call. Would help where fusion still ranks the best passage below the top 3. Worth doing only once the eval loop can prove it helped.',
+          'Retrieve ~20 by vector then rerank to 5 with a cheap model call. Would help where fusion still ranks the best passage below the top 3. Worth doing only once a held-out eval set can prove it helped.',
         status: 'todo',
       },
     ],
@@ -289,6 +303,18 @@ export const ROADMAP: RoadmapPhase[] = [
         detail: 'Only matters beyond localhost, but trivial to add before it does.',
         status: 'todo',
       },
+      {
+        title: 'Prompt injection from documents',
+        detail:
+          'Scraped pages are stripped of <script> and <style>, but not of TEXT. A document containing "ignore previous instructions" would go straight into the prompt as trusted context. Low risk from angular.dev specifically, but the pattern is unguarded, and retrieved content is third-party input by definition.',
+        status: 'todo',
+      },
+      {
+        title: 'Verify citation attribution, not just range',
+        detail:
+          'The guard checks that [n] refers to a passage that was supplied. It does not check that the claim actually came from passage n - a model can cite [1] for something it read in [3], and nothing notices.',
+        status: 'todo',
+      },
     ],
   },
 
@@ -336,6 +362,26 @@ export const ROADMAP: RoadmapPhase[] = [
         detail: 'Render tokens as they arrive instead of 2-4 seconds of dead air.',
         status: 'todo',
       },
+      {
+        title: 'Fix the leaking docs subscription',
+        detail:
+          'docs.component subscribed to queryParamMap and never unsubscribed, so the handler outlived the component and every visit left another live listener writing to dead signals. Fixed with takeUntilDestroyed.',
+        status: 'done',
+        where: 'src/app/docs.component.ts',
+      },
+      {
+        title: 'Move async state onto httpResource',
+        detail:
+          'All state is signal-based, but the async plumbing is hand-rolled: raw fetch, a manual isLoading flag, and try/catch, kept in sync by hand. httpResource collapses those into one unit exposing value, error and isLoading - and cancels superseded requests for free. provideHttpClient would also bring interceptors and make the frontend HTTP layer testable, which it currently is not at all.',
+        status: 'todo',
+        where: 'src/app/chat.store.ts, docs.component.ts',
+      },
+      {
+        title: 'Persist the conversation and allow cancelling',
+        detail:
+          'The rail survives navigation but not a reload. And isLoading BLOCKS a second question rather than cancelling the first, which an AbortController would handle properly.',
+        status: 'todo',
+      },
     ],
   },
 
@@ -350,6 +396,19 @@ export const ROADMAP: RoadmapPhase[] = [
           'Fifteen questions covering match, no-match and adjacent-but-unanswered outcomes, measured as hit@3 and MRR, currently 13/13 and 1.000. Question vectors are cached so it runs free and offline. It also disproved its own premise about score bands, and caught a real retrieval weakness rather than letting it hide behind a widened expectation.',
         status: 'done',
         where: 'test/retrieval.test.mjs, test/golden-set.mjs',
+      },
+      {
+        title: 'Held-out evaluation set',
+        detail:
+          'Fifteen questions never used for tuning, targeting details in the middle of long pages and phrased to avoid echoing page titles. It earned its keep immediately: contextual chunking produced NO rank change on the golden set - which is saturated and cannot distinguish two stores - while showing hit@1 67 to 73% and MRR 0.789 to 0.822 here. Honest figures are hit@1 73%, hit@3 93%, MRR 0.822, against the golden set's flattering 100% and 1.000. Thresholds are regression guards set BELOW current performance, never targets.',
+        status: 'done',
+        where: 'test/holdout-set.mjs, test/holdout.test.mjs, scripts/eval-retrieval.js',
+      },
+      {
+        title: 'Measure answer quality, not just retrieval',
+        detail:
+          'Retrieval is measured thoroughly and generation barely. Nothing scores whether an answer is faithful to the passages it cites - only that the citation numbers are in range. Faithfulness and groundedness checks would cover the half currently taken on trust.',
+        status: 'todo',
       },
       {
         title: 'Continuous integration',

@@ -55,6 +55,11 @@ jobs:
       - name: Retrieval golden set
         run: npm run test:retrieval
 
+      # The held-out set is the unbiased measurement - regression guards set below
+      # current performance, never targets. Skips without a store, same as above.
+      - name: Held-out retrieval set
+        run: npx vitest run test/holdout.test.mjs
+
       - name: Report whether retrieval was actually measured
         if: always()
         run: |

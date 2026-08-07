@@ -16,7 +16,8 @@
     "compare-providers": "node ./scripts/compare-providers.js",
     "list-models": "node ./scripts/list-models.js",
     "test:retrieval": "vitest run test/retrieval.test.mjs",
-    "start-backend": "node ./server/index.js"
+    "start-backend": "node ./server/index.js",
+    "eval": "node ./scripts/eval-retrieval.js"
   },
   "private": true,
   "packageManager": "npm@11.17.0",

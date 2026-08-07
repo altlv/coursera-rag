@@ -96,13 +96,32 @@ function buildChunks(pages) {
     const pieces = chunkText(page.contentText || '', CHUNK_CHARS, CHUNK_OVERLAP);
 
     pieces.forEach((text, index) => {
+      const body = text.length > MAX_CHUNK_CHARS ? text.slice(0, MAX_CHUNK_CHARS) : text;
+
       chunks.push({
         id: `${page.path}#${index + 1}`,
         title: page.title,
         path: page.path,
         url: page.url,
-        // Truncate once, then embed and store this exact string.
-        text: text.length > MAX_CHUNK_CHARS ? text.slice(0, MAX_CHUNK_CHARS) : text,
+        /** The passage as written, for display and for the prompt. */
+        text: body,
+        /*
+         * What actually gets embedded: the page title prepended to the passage.
+         *
+         * "Contextual chunking". Without it a mid-page passage is embedded with no
+         * trace of where it came from - "Native HTML elements capture several
+         * standard interaction patterns..." carried nothing connecting it to
+         * "Accessibility in Angular", so a question about accessibility could not
+         * match it on anything but coincidence.
+         *
+         * Keyword scoring already read the title, so the two halves of retrieval
+         * disagreed about what a passage even was. This makes them agree.
+         *
+         * Kept as a separate field rather than folded into `text` so the prompt and
+         * the UI still show the passage as written - the title would otherwise be
+         * repeated at the top of every excerpt.
+         */
+        embedText: `${page.title}\n\n${body}`,
       });
     });
   }
@@ -149,7 +168,8 @@ async function build() {
 
   for (let start = 0; start < chunks.length; start += BATCH_SIZE) {
     const batch = chunks.slice(start, start + BATCH_SIZE);
-    const embeddings = await embedBatch(batch.map((c) => c.text));
+    // embedText, not text: the title is part of what gets embedded.
+    const embeddings = await embedBatch(batch.map((c) => c.embedText));
 
     embeddings.forEach((embedding, i) => {
       if (embedding.length !== DIMENSIONS) {
@@ -176,9 +196,13 @@ async function build() {
         chunkChars: CHUNK_CHARS,
         chunkOverlap: CHUNK_OVERLAP,
         normalized: true,
+        /** Records that the title was prepended before embedding. */
+        contextualized: true,
         pageCount: pages.length,
         chunkCount: chunks.length,
-        chunks,
+        // embedText is derivable from title + text, so it is not stored - it would
+        // duplicate most of the file for no benefit.
+        chunks: chunks.map(({ embedText, ...rest }) => rest),
       },
       null,
       2,

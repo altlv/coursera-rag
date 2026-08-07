@@ -1,5 +1,6 @@
 import { CommonModule } from '@angular/common';
 import { Component, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
@@ -35,7 +36,13 @@ export class DocsComponent {
 
   constructor() {
     this.loadStructure();
-    this.route.queryParamMap.subscribe((params) => {
+    /*
+     * takeUntilDestroyed: without it this handler outlives the component. The
+     * subscription is never torn down, so every visit to /docs leaves another
+     * live listener that fires on navigation and writes to a dead component's
+     * signals.
+     */
+    this.route.queryParamMap.pipe(takeUntilDestroyed()).subscribe((params) => {
       const path = params.get('path');
       if (path) {
         this.loadPage(path);

@@ -94,6 +94,33 @@ Keyword scoring is applied only to passages that already cleared the similarity 
 | Vector only | 12/13 (92%) | 0.836 |
 | Hybrid + diversity cap | **13/13 (100%)** | **1.000** |
 
+> **That 100% is not the honest number.** Hybrid retrieval, the diversity cap and the score floor were all tuned *while watching these same 15 questions*, so the score describes the tuning rather than the system — and being saturated, it cannot detect a change in either direction.
+
+### The held-out set, and why it matters
+
+`test/holdout-set.mjs` holds 15 questions **never used for tuning**. They deliberately target details in the *middle* of long pages, phrased to avoid echoing page titles, so a match has to come from the body rather than a lucky headline overlap.
+
+**The honest retrieval numbers:**
+
+| Set | hit@1 | hit@3 | MRR |
+| --- | --- | --- | --- |
+| Golden (tuned against) | 100% | 100% | 1.000 |
+| **Held-out (never tuned against)** | **73%** | **93%** | **0.822** |
+
+The gap between those rows is the cost of evaluating on what you tuned.
+
+It proved itself immediately. **Contextual chunking** — prepending the page title before embedding, so a mid-page passage carries some trace of where it came from — was measured both ways:
+
+| | Golden set | Held-out set |
+| --- | --- | --- |
+| Effect | **no rank changed at all** | hit@1 **67% → 73%**, MRR **0.789 → 0.822** |
+
+The golden set literally could not tell the two stores apart. Without the held-out set, a real improvement would have shipped as an unverified guess — or a regression could have shipped the same way.
+
+`npm run eval -- --compare=<dir>` scores both sets against two stores and prints the rank changes, which is how any retrieval change should be judged.
+
+The thresholds in `test/holdout.test.mjs` are set *below* current performance on purpose: they are regression guards, not targets. Tuning until they go green would destroy the only unbiased measurement here and turn it into a second golden set.
+
 ## Working memory: follow-up questions
 
 Every question used to be embedded on its own, so *"what about effects?"* carried almost nothing searchable and matched near-randomly. Follow-ups now resolve against the conversation.
@@ -336,6 +363,10 @@ One caveat stated deliberately: **the vector store is gitignored**, since produc
 | **Contradiction blind spot** | Passages are selected for similarity, never for agreeing with each other. Version drift, or a deprecated API beside its replacement, can put conflicting claims in one prompt — and a model faithfully reproduces both. The citation guard catches *invented* sources and is blind to *conflicting* ones |
 | **No question logging** | No record of what is actually asked, so the golden set stays fifteen guesses |
 | **Confidence is provider-dependent** | See the limitation noted above |
+| **Prompt injection from documents** | `<script>` and `<style>` are stripped at scrape time, but not *text*. A page containing "ignore previous instructions" would enter the prompt as trusted context. Low risk from angular.dev, but retrieved content is third-party input by definition |
+| **Citation attribution unverified** | The guard checks `[n]` refers to a *supplied* passage, not that the claim came from passage *n* |
+| **Lost in the middle** | Models attend least to the middle of a long context. Passages are ordered by fused rank, with no attention paid to position |
+| **Code samples split across chunks** | Chunking splits on blank lines and ignores fenced code — an 80-line example lands in two passages. Bad for a documentation assistant, where the code often *is* the answer |
 
 Live status for all of these is on the Overview page, from `src/app/roadmap.data.ts`.
 
