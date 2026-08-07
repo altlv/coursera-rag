@@ -365,9 +365,9 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Documentation index',
         detail:
-          'A browsable list of every indexed page with its real angular.dev URL, so it is clear what the assistant can and cannot answer from. Needs GET /api/docs/list and a DocsService that caches - the tree is currently refetched on every visit.',
-        status: 'todo',
-        where: 'server/index.js, src/app/docs.service.ts',
+          'A browsable index of every indexed page, shown when no page is selected: grouped by section, filterable, with passage counts and real angular.dev links. The smart part comes from the question log - it reports which pages actually get retrieved, and flags pages never retrieved at all, which are either irrelevant content or content the retriever cannot reach. Usage figures are hidden below 50 retrievals, because "100 of 114 pages never retrieved" after ten questions is arithmetic rather than a finding.',
+        status: 'done',
+        where: 'GET /api/docs/list, src/app/docs.service.ts',
       },
       {
         title: 'Stream answers',

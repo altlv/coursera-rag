@@ -2,44 +2,148 @@
   <div class="docs-sidebar">
     <div class="docs-sidebar-header">
       <h2>Local Angular Docs</h2>
-      <p>Browse the downloaded docs corpus.</p>
+      @if (index()) {
+        <p>{{ index()!.pageCount }} pages, {{ index()!.passageCount }} passages</p>
+      } @else {
+        <p>Browse the downloaded docs corpus.</p>
+      }
     </div>
 
     <nav class="docs-tree">
-      <ng-container *ngIf="structure(); else loadingStructure">
+      @if (structure()) {
         <ul>
-          <ng-container *ngFor="let node of structure()">
+          @for (node of structure(); track node.title) {
             <li>
-              <a [routerLink]="['/docs']" [queryParams]="{ path: node.path }">{{ node.title }}</a>
-              <ul *ngIf="node.children?.length">
-                <ng-container *ngFor="let child of node.children">
-                  <li>
-                    <a [routerLink]="['/docs']" [queryParams]="{ path: child.path }">{{ child.title }}</a>
-                  </li>
-                </ng-container>
-              </ul>
+              <!-- Section headings carry no path, so they must not render as links -
+                   pathless nodes previously became links to ?path=undefined. -->
+              @if (node.path) {
+                <a [routerLink]="['/docs']" [queryParams]="{ path: node.path }">{{ node.title }}</a>
+              } @else {
+                <span class="docs-tree-section">{{ node.title }}</span>
+              }
+
+              @if (node.children?.length) {
+                <ul>
+                  @for (child of node.children; track child.path || child.title) {
+                    <li>
+                      @if (child.path) {
+                        <a [routerLink]="['/docs']" [queryParams]="{ path: child.path }">{{ child.title }}</a>
+                      } @else {
+                        <span class="docs-tree-section">{{ child.title }}</span>
+                      }
+                    </li>
+                  }
+                </ul>
+              }
             </li>
-          </ng-container>
+          }
         </ul>
-      </ng-container>
-      <ng-template #loadingStructure>
-        <p>Loading docs structure…</p>
-      </ng-template>
+      } @else {
+        <p>Loading docs structure...</p>
+      }
     </nav>
   </div>
 
   <div class="docs-content">
-    <div *ngIf="loading()" class="docs-loading">Loading page…</div>
-    <div *ngIf="error()" class="docs-error">{{ error() }}</div>
-    <div *ngIf="page()" class="docs-article">
-      <h1>{{ page()?.title }}</h1>
-      <div [innerHTML]="pageContent()"></div>
-      <div class="docs-footer">
-        <a [href]="page()?.url" target="_blank" rel="noopener noreferrer">View original Angular docs page</a>
+    @if (loading()) {
+      <div class="docs-loading">Loading page...</div>
+    }
+    @if (error()) {
+      <div class="docs-error">{{ error() }}</div>
+    }
+
+    @if (page()) {
+      <div class="docs-article">
+        <h1>{{ page()?.title }}</h1>
+        <div [innerHTML]="pageContent()"></div>
+        <div class="docs-footer">
+          <a [href]="page()?.url" target="_blank" rel="noopener noreferrer"
+            >View the original on angular.dev</a
+          >
+        </div>
       </div>
-    </div>
-    <div *ngIf="!loading() && !page() && !error()" class="docs-empty">
-      <p>Select a doc page from the left to open it.</p>
-    </div>
+    }
+
+    <!-- No page selected: show what the assistant can actually answer from. -->
+    @if (!loading() && !page() && !error()) {
+      @if (index()) {
+        <div class="index-view">
+          <header class="index-header">
+            <div>
+              <h1>What the assistant knows</h1>
+              <p class="index-sub">
+                {{ index()!.pageCount }} pages, {{ index()!.passageCount }} indexed passages
+                @if (index()!.model) {
+                  <span class="index-model">{{ index()!.model }}</span>
+                }
+              </p>
+            </div>
+          </header>
+
+          <div class="index-controls">
+            <input
+              class="index-search"
+              type="search"
+              placeholder="Filter by title or path..."
+              [ngModel]="filter()"
+              (ngModelChange)="filter.set($event)"
+            />
+            <div class="index-sort">
+              <span>Sort</span>
+              <button type="button" [class.active]="sortBy() === 'path'" (click)="setSort('path')">Path</button>
+              <button type="button" [class.active]="sortBy() === 'passages'" (click)="setSort('passages')">Passages</button>
+              @if (hasEnoughUsageData()) {
+                <button type="button" [class.active]="sortBy() === 'retrievals'" (click)="setSort('retrievals')">Most used</button>
+              }
+            </div>
+          </div>
+
+          @if (neverRetrieved().length) {
+            <!-- Either irrelevant content, or relevant content that cannot be
+                 reached - and the second is a retrieval bug in plain sight. -->
+            <p class="index-note">
+              {{ neverRetrieved().length }} of {{ index()!.pageCount }} pages have never been
+              retrieved. That is either content nobody needs, or content the retriever cannot
+              reach.
+            </p>
+          }
+
+          @for (section of sections(); track section.name) {
+            <section class="index-section">
+              <h2>
+                {{ section.name }}
+                <span class="index-count">{{ section.items.length }} pages, {{ section.passages }} passages</span>
+              </h2>
+              <ul class="index-list">
+                @for (item of section.items; track item.path) {
+                  <li class="index-item" [class.unused]="hasEnoughUsageData() && item.retrievals === 0">
+                    <a class="index-title" [routerLink]="['/docs']" [queryParams]="{ path: item.path }">{{ item.title }}</a>
+                    <code class="index-path">{{ item.path }}</code>
+                    <span class="index-meta">{{ item.passages }} passages</span>
+                    @if (hasEnoughUsageData()) {
+                      <span class="index-meta" [class.index-used]="item.retrievals > 0">used {{ item.retrievals }}x</span>
+                    }
+                    <a
+                      class="index-external"
+                      [href]="item.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Open on angular.dev"
+                      >&#8599;</a
+                    >
+                  </li>
+                }
+              </ul>
+            </section>
+          } @empty {
+            <p class="docs-empty">Nothing matches "{{ filter() }}".</p>
+          }
+        </div>
+      } @else {
+        <div class="docs-empty">
+          <p>Select a doc page from the left to open it.</p>
+        </div>
+      }
+    }
   </div>
 </section>

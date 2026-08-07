@@ -415,6 +415,57 @@ app.get('/api/docs/structure', async () => {
  * key values.
  */
 /**
+ * A flat, browsable index of everything the assistant can answer from.
+ *
+ * More useful than a nav tree, because it answers questions the tree cannot:
+ * how many passages each page contributes, which pages actually get retrieved,
+ * and which have never been retrieved at all. That last group is either genuinely
+ * irrelevant content or content that is unreachable - and the second case is a
+ * retrieval bug hiding in plain sight.
+ */
+app.get('/api/docs/list', async () => {
+  const [pages, store, retrievals] = await Promise.all([
+    loadDocsPages(),
+    loadVectorStore(),
+    questionLog.pathStats(),
+  ]);
+
+  // Passages per page, from the store rather than recomputed.
+  const passages = new Map();
+  for (const chunk of store?.chunks || []) {
+    passages.set(chunk.path, (passages.get(chunk.path) || 0) + 1);
+  }
+
+  const structure = await loadDocsStructure();
+  const sectionOf = new Map();
+  for (const section of structure.children || []) {
+    for (const child of section.children || []) sectionOf.set(child.path, section.title);
+  }
+
+  const items = [...pages.values()]
+    .map((page) => ({
+      title: page.title,
+      path: page.path,
+      url: page.url,
+      section: sectionOf.get(page.path) || 'Other',
+      passages: passages.get(page.path) || 0,
+      /** Times this page has appeared in a retrieval. Absent when logging is off. */
+      retrievals: retrievals.get(page.path) || 0,
+      chars: page.contentText.length,
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  return {
+    pageCount: items.length,
+    passageCount: store?.chunks.length || 0,
+    /** Null when nothing has been logged, so the UI can hide usage columns. */
+    totalRetrievals: [...retrievals.values()].reduce((sum, n) => sum + n, 0) || null,
+    model: store?.model || null,
+    items,
+  };
+});
+
+/**
  * Rate an answer.
  *
  * Question logs say what was asked, not whether the answer was good. This is the

@@ -366,6 +366,23 @@ function createQuestionLog({
       }
     },
 
+    /**
+     * How often each doc page has been retrieved.
+     *
+     * Turns the log into corpus feedback: pages that answer many questions are
+     * carrying the assistant, and pages never retrieved at all are dead weight -
+     * either genuinely irrelevant, or relevant but unreachable, which is a
+     * retrieval bug rather than a corpus one.
+     */
+    async pathStats() {
+      const counts = new Map();
+      for (const event of await readEvents()) {
+        if (event.kind === 'rating') continue;
+        for (const p of event.paths || []) counts.set(p, (counts.get(p) || 0) + 1);
+      }
+      return counts;
+    },
+
     async read() {
       return readEvents();
     },
