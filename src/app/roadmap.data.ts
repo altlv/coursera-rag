@@ -218,8 +218,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Surface contradictions instead of merging them',
         detail:
-          'Passages are selected for similarity, never for agreeing with each other, so the prompt can contain version drift or a deprecated API beside its replacement - and a model faithfully reproduces both. The prompt should ask it to flag disagreement and cite both sides, and passage rank should be passed so stronger evidence outweighs weaker. The citation guard catches invented sources and is blind to conflicting ones.',
-        status: 'todo',
+          'Passages are selected for similarity and never for agreeing with each other, so version drift or a deprecated API beside its replacement can put contradictory claims in one prompt - and the citation guard cannot help, since it checks a source was supplied, not that sources agree. Passages now carry their rank (ordinal, because scores sit in a narrow band that reads as "all equal"), and the prompt asks for conflict to be stated and both sides cited. Verified with two deliberately contradictory passages: the model cited both and stated the deprecation. It fires on genuine contradictions, NOT on multiple valid alternatives - three different forms APIs still produced one answer without noting the others.',
+        status: 'done',
         where: 'server/rag.js SYSTEM_PROMPT, buildPrompt()',
       },
       {
@@ -307,6 +307,18 @@ export const ROADMAP: RoadmapPhase[] = [
         title: 'Prompt injection from documents',
         detail:
           'Scraped pages are stripped of <script> and <style>, but not of TEXT. A document containing "ignore previous instructions" would go straight into the prompt as trusted context. Low risk from angular.dev specifically, but the pattern is unguarded, and retrieved content is third-party input by definition.',
+        status: 'todo',
+      },
+      {
+        title: 'Retrieve both sides of an old/new API pair',
+        detail:
+          'Conflict surfacing is a generation defence resting on a retrieval assumption: the prompt cannot flag a conflict it was never shown. Measured on the real corpus - "how do I listen to an event on the host element?" retrieved both @HostListener and the host object and correctly recommended one while noting the other, but "how do I get a reference to a child component?" taught @ViewChild and never mentioned viewChild(), because the signal-query passage never reached the top-k. So the assistant will still sometimes present a legacy API as the only option. Needs retrieval-side work: recognising API-pair questions, or reranking for diversity of APPROACH rather than just diversity of page.',
+        status: 'todo',
+      },
+      {
+        title: 'Validate generated code samples',
+        detail:
+          'Nothing checks the code a model emits. Observed directly: given two conflicting passages it produced "@component" in lowercase and mixed the @Input() decorator with the input() function in a single sample. For a documentation assistant the code is frequently the whole answer, so shipping one that does not compile is worse than shipping prose that is merely vague. Type-checking or compiling extracted snippets would catch it.',
         status: 'todo',
       },
       {

@@ -598,6 +598,8 @@ Rules:
 - Never invent APIs, options or version numbers.
 - Prefer short, concrete explanations. Include a small code example when the context contains one.
 - Do not mention "context", "passages" or "documents" in your answer. Just answer the question.
+- Passages are ordered by relevance, strongest first. Where they disagree, prefer the earlier one.
+- If two passages CONFLICT - different APIs for the same task, a deprecated approach beside its replacement, or contradictory statements - say so explicitly and cite both. Do not silently merge them into one answer, and do not pick one without noting the other exists.
 - If the passages do NOT contain the information needed to answer, reply with exactly ${NO_ANSWER_SENTINEL} and nothing else. Do not apologise, explain, or answer from your own knowledge. This applies even when the passages are on a related topic.`;
 
 /** Nothing cleared the similarity floor: there is nothing to show. */
@@ -615,8 +617,24 @@ const PARTIAL_ANSWER =
  * the citation check in generateAnswer possible.
  */
 function buildPrompt(question, chunks, { history = [], provider } = {}) {
+  /*
+   * Passages carry their rank, and the strongest is marked.
+   *
+   * Without a relevance signal the model weights a rank-5 passage exactly like a
+   * rank-1 one, so a weak conflicting passage carries the same authority as the
+   * best match - which is one of the ways a single answer ends up contradicting
+   * itself. The system prompt tells it to prefer earlier passages, and this is
+   * what makes "earlier" mean something.
+   *
+   * Rank is used rather than the raw score: scores sit in a narrow band (~0.25 to
+   * 0.65) that reads as "all roughly equal" to a model, while ordinal position is
+   * unambiguous.
+   */
   const context = chunks
-    .map((chunk, index) => `[${index + 1}] ${chunk.title} (${chunk.path})\n${chunk.text}`)
+    .map((chunk, index) => {
+      const relevance = index === 0 ? 'most relevant' : `relevance rank ${index + 1}`;
+      return `[${index + 1}] ${chunk.title} (${chunk.path}) - ${relevance}\n${chunk.text}`;
+    })
     .join('\n\n---\n\n');
 
   const parts = [];

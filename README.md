@@ -335,6 +335,31 @@ A related failure worth knowing, which no guard here can catch: an embedding mod
 | Answers from another model are labelled | Model B inheriting model A's claims — defending an answer, or standing by a refusal, it never made |
 | Implausible rewrites fall back to the question as typed | A model that answers instead of rewriting poisoning retrieval |
 
+### Conflicting passages
+
+Passages are selected for similarity to the question and **never for agreeing with each other**. Version drift, or a deprecated API sitting beside its replacement, can put contradictory claims in a single prompt — and a model told only to "answer from the context" faithfully reproduces both, contradicting itself inside one answer.
+
+The citation guard cannot catch this. It verifies a source was *supplied*, not that the sources *agree*.
+
+Two changes address it:
+
+1. **Passages carry their rank** — `[1] … - most relevant`, `[2] … - relevance rank 2`. Without a relevance signal a rank-5 passage carries the same authority as the best match. Rank is used rather than the raw score because scores sit in a narrow 0.25–0.65 band that reads as "all roughly equal", while ordinal position doesn't.
+2. **The prompt asks for conflict to be surfaced, not merged** — say so explicitly, cite both, and prefer the earlier passage when they disagree.
+
+Angular's docs contain several genuine old/new API pairs, so this is testable on the real corpus rather than a synthetic case. Sweeping for them found `@ViewChild` (4 pages) vs `viewChild()` (2), `@HostListener` (2) vs the `host` object (7), and `@Input()` vs `input()` — each taught on *different* pages.
+
+**It works when both sides are retrieved.** Asked *"how do I listen to an event on the host element?"*, retrieval returned both APIs and the answer was:
+
+> Alternatively, you can use the `@HostListener` decorator… **However, it is recommended to prefer using the `host` property over `@HostListener` for new implementations, as the latter exists for backwards compatibility** `[1][2]`
+
+Both approaches shown, the tension stated, the recommendation given, both cited.
+
+**And here is the limitation that matters.** Asked *"how do I get a reference to a child component?"*, the same system confidently taught `@ViewChild` and never mentioned `viewChild()` — because retrieval **never surfaced the signal-query passage at all**. The prompt cannot flag a conflict it was never shown.
+
+So this is a *generation* defence sitting on top of a *retrieval* assumption: it only works when both sides make the top-k. Concretely, the assistant will still sometimes recommend a legacy API as though it were the only one. Closing that needs retrieval-side work — recognising API-pair questions, or reranking for diversity of approach rather than just diversity of page.
+
+It also fires on genuine **contradictions**, not on *multiple valid alternatives*: *"how do I define a form control?"* retrieved signal forms, template-driven and reactive passages — three legitimate approaches — and the model picked one without noting the others.
+
 ### Resilience
 
 | Guard | Prevents |
@@ -360,7 +385,7 @@ One caveat stated deliberately: **the vector store is gitignored**, since produc
 | Gap | Risk |
 | --- | --- |
 | **No spend ceiling or rate limiting** | Low risk locally, real once exposed |
-| **Contradiction blind spot** | Passages are selected for similarity, never for agreeing with each other. Version drift, or a deprecated API beside its replacement, can put conflicting claims in one prompt — and a model faithfully reproduces both. The citation guard catches *invented* sources and is blind to *conflicting* ones |
+| **Generated code is never validated** | Verified: given two conflicting passages, the model produced `@component` (lowercase) and mixed the `@Input()` decorator with the `input()` function in one sample. Nothing type-checks or compiles what it emits — a real gap for a *documentation* assistant, where the code is often the answer |
 | **No question logging** | No record of what is actually asked, so the golden set stays fifteen guesses |
 | **Confidence is provider-dependent** | See the limitation noted above |
 | **Prompt injection from documents** | `<script>` and `<style>` are stripped at scrape time, but not *text*. A page containing "ignore previous instructions" would enter the prompt as trusted context. Low risk from angular.dev, but retrieved content is third-party input by definition |

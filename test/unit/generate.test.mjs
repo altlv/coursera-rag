@@ -53,6 +53,36 @@ describe('buildPrompt', () => {
     expect(system).toMatch(/cite/i);
   });
 
+  it('marks passage relevance so the model can weigh conflicting evidence', () => {
+    /*
+     * Without a relevance signal every passage carries equal authority, so a weak
+     * rank-5 passage can contradict the best match on equal terms. Rank is used
+     * rather than the raw score because scores sit in a narrow band that reads as
+     * "all roughly equal", while ordinal position does not.
+     */
+    const { user } = buildPrompt('q', CHUNKS);
+    expect(user).toContain('most relevant');
+    expect(user).toContain('relevance rank 2');
+  });
+
+  it('instructs the model to surface conflicting passages rather than merge them', () => {
+    /*
+     * Passages are selected for similarity to the question and never for agreeing
+     * with each other, so version drift or a deprecated API beside its replacement
+     * can put contradictory claims in one prompt. A model told only to "answer
+     * from the context" faithfully reproduces both and contradicts itself.
+     *
+     * The citation guard cannot catch this: it verifies a source was SUPPLIED,
+     * not that the sources agree.
+     */
+    const { system } = buildPrompt('q', CHUNKS);
+    expect(system).toMatch(/conflict/i);
+    expect(system).toMatch(/cite both/i);
+    expect(system).toMatch(/do not silently merge/i);
+    // And it must know which passage to prefer when they disagree.
+    expect(system).toMatch(/strongest first|prefer the earlier/i);
+  });
+
   it('tells the model how to signal that the passages do not answer the question', () => {
     const { system } = buildPrompt('q', CHUNKS);
     expect(system).toContain(NO_ANSWER_SENTINEL);
