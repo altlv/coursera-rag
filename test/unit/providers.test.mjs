@@ -51,6 +51,52 @@ describe('listAvailable', () => {
     expect(listAvailable(BOTH)).toEqual(['openai', 'gemini']);
     expect(listAvailable(NONE)).toEqual([]);
   });
+
+  it('does not list local providers unless explicitly enabled', () => {
+    /*
+     * Local servers are opt-in rather than probed. Listing one that is not running
+     * would make fallback confusing: the provider would look available and then
+     * fail on first use.
+     */
+    expect(listAvailable(OPENAI_ONLY)).not.toContain('lmstudio');
+    expect(listAvailable(OPENAI_ONLY)).not.toContain('ollama');
+  });
+
+  it('ENABLE_LOCAL enables both local servers', () => {
+    const available = listAvailable({ ...OPENAI_ONLY, ENABLE_LOCAL: 'true' });
+    expect(available).toContain('lmstudio');
+    expect(available).toContain('ollama');
+  });
+
+  it('still honours the older ENABLE_OLLAMA flag', () => {
+    // An existing .env must keep working after the rename.
+    expect(listAvailable({ ...OPENAI_ONLY, ENABLE_OLLAMA: 'true' })).toContain('ollama');
+  });
+});
+
+describe('local providers', () => {
+  it('are separate entries, because the two tools use different ports', () => {
+    // One generic "local" entry would silently point at the wrong port, which is a
+    // confusing failure to debug.
+    expect(PROVIDERS.lmstudio.baseURL).toContain(':1234');
+    expect(PROVIDERS.ollama.baseURL).toContain(':11434');
+  });
+
+  it('need no credential', () => {
+    expect(PROVIDERS.lmstudio.keyless).toBe(true);
+    expect(PROVIDERS.ollama.keyless).toBe(true);
+  });
+
+  it('offer no embeddings, so they cannot silently replace the store\'s model', () => {
+    expect(PROVIDERS.lmstudio.embeddingModel).toBeNull();
+    expect(PROVIDERS.ollama.embeddingModel).toBeNull();
+  });
+
+  it('can be created without any key', () => {
+    const llm = createLlm({ provider: 'lmstudio', env: { ENABLE_LOCAL: 'true' } });
+    expect(llm.provider).toBe('lmstudio');
+    expect(typeof llm.complete).toBe('function');
+  });
 });
 
 describe('resolveProvider', () => {

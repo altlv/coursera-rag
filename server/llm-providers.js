@@ -93,23 +93,40 @@ const PROVIDERS = {
     embeddingModel: null,
     supportsEmbeddingDimensions: false,
   },
+  /*
+   * Local model servers. No key, no cost, no rate limits, works offline.
+   *
+   * Two entries rather than one generic "local", because the two tools listen on
+   * different ports and picking the wrong one is a confusing failure. Both speak
+   * the same OpenAI protocol.
+   *
+   * Worth having alongside the cloud providers for three reasons: it proves this
+   * pipeline needs no cloud provider at all; it is the only option nobody can
+   * withdraw, unlike a free tier; and a small local model is the honest test of
+   * how much work the grounding instruction is really doing.
+   *
+   * Availability is decided by the server running, not by a key, so these are
+   * opt-in via ENABLE_LOCAL rather than probed on every request.
+   */
+  lmstudio: {
+    label: 'LM Studio (local)',
+    envKey: 'LMSTUDIO_BASE_URL',
+    modelEnvKey: 'LMSTUDIO_MODEL',
+    baseURL: 'http://localhost:1234/v1',
+    // LM Studio serves whatever is loaded; "local-model" is accepted as an alias.
+    defaultChatModel: 'local-model',
+    embeddingModel: null,
+    supportsEmbeddingDimensions: false,
+    keyless: true,
+  },
   ollama: {
-    /*
-     * Local models, no key and no cost. Included because it demonstrates that
-     * none of this pipeline requires a cloud provider - and because a small local
-     * model is the honest test of how much the grounding instruction is doing.
-     *
-     * Availability is decided by the server running, not by a key, so `envKey`
-     * points at an optional override of the host.
-     */
     label: 'Ollama (local)',
     envKey: 'OLLAMA_BASE_URL',
     modelEnvKey: 'OLLAMA_MODEL',
     baseURL: 'http://localhost:11434/v1',
-    defaultChatModel: 'llama3.2',
+    defaultChatModel: 'qwen2.5-coder:7b',
     embeddingModel: null,
     supportsEmbeddingDimensions: false,
-    /** Needs no credential; the SDK still wants a non-empty string. */
     keyless: true,
   },
 };
@@ -140,8 +157,22 @@ const BASE_BACKOFF_MS = 500;
  */
 function listAvailable(env = process.env) {
   return Object.entries(PROVIDERS)
-    .filter(([name, config]) => {
-      if (config.keyless) return env.ENABLE_OLLAMA === 'true' || Boolean(env[config.envKey]);
+    .filter(([, config]) => {
+      /*
+       * Keyless providers are opt-in. Probing localhost on every call would be
+       * slow, and listing a local server that is not running would make the
+       * fallback behaviour confusing - a provider would appear available and then
+       * fail on use.
+       *
+       * ENABLE_OLLAMA is still honoured so an existing .env keeps working.
+       */
+      if (config.keyless) {
+        return (
+          env.ENABLE_LOCAL === 'true' ||
+          env.ENABLE_OLLAMA === 'true' ||
+          Boolean(env[config.envKey])
+        );
+      }
       return Boolean(env[config.envKey]);
     })
     .map(([name]) => name);
