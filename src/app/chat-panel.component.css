@@ -280,6 +280,40 @@
   color: var(--color-status-todo);
 }
 
+/* ---------- Rating ---------- */
+
+.rate {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.rate-label,
+.rate-done {
+  font-size: 0.7rem;
+  color: var(--color-text-subtle);
+}
+
+.rate-done {
+  font-style: italic;
+}
+
+.rate-button {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.rate-button:hover {
+  border-color: var(--color-brand-ring);
+  background: var(--color-brand-wash);
+}
+
 /* ---------- Retrieval trace ---------- */
 
 .trace {

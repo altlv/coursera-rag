@@ -178,6 +178,48 @@ describe('buildIndex', () => {
     expect(buildIndex([ev('   ', unit(1, 0, 0))])).toHaveLength(0);
   });
 
+  it('folds user ratings into the cluster they belong to', () => {
+    /*
+     * A rating is a separate append-only event, so the log stays crash-safe and
+     * preserves the order things happened. Editing the original event in place
+     * would mean rewriting the file.
+     */
+    const clusters = buildIndex([
+      { ...ev('what are signals?', unit(1, 0, 0)), id: 'abc' },
+      { kind: 'rating', questionId: 'abc', rating: 'down', note: 'wrong API', at: 'x' },
+    ]);
+
+    expect(clusters).toHaveLength(1);
+    expect(clusters[0].ratings.down).toBe(1);
+    expect(clusters[0].notes).toContain('wrong API');
+  });
+
+  it('matches a rating by question text when the id is missing', () => {
+    const clusters = buildIndex([
+      ev('what are signals?', unit(1, 0, 0)),
+      { kind: 'rating', question: 'What are signals??', rating: 'up', at: 'x' },
+    ]);
+    expect(clusters[0].ratings.up).toBe(1);
+  });
+
+  it('folds in a rating that appears BEFORE its question', () => {
+    // Ratings are collected and applied in a second pass, so log order cannot
+    // cause one to be silently dropped.
+    const clusters = buildIndex([
+      { kind: 'rating', questionId: 'abc', rating: 'down', at: 'x' },
+      { ...ev('what are signals?', unit(1, 0, 0)), id: 'abc' },
+    ]);
+    expect(clusters[0].ratings.down).toBe(1);
+  });
+
+  it('does not count rating events as questions asked', () => {
+    const clusters = buildIndex([
+      { ...ev('what are signals?', unit(1, 0, 0)), id: 'abc' },
+      { kind: 'rating', questionId: 'abc', rating: 'up', at: 'x' },
+    ]);
+    expect(clusters[0].total).toBe(1);
+  });
+
   it('records when a cluster was first and last seen', () => {
     const clusters = buildIndex([
       ev('q', unit(1, 0, 0), { at: '2026-01-01T00:00:00.000Z' }),

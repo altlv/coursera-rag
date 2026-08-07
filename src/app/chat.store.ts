@@ -54,6 +54,10 @@ export interface ChatMessage {
   providerLabel?: string;
   model?: string;
   isError?: boolean;
+  /** Set when logging is on, so this answer can be rated. */
+  questionId?: string;
+  /** The user's verdict, once given. Kept so the UI can show it was recorded. */
+  rating?: 'up' | 'down';
 }
 
 const WELCOME: ChatMessage = {
@@ -127,6 +131,32 @@ export class ChatStore {
   }
 
   /**
+   * Record a verdict on one answer.
+   *
+   * The rating is stored on the message immediately rather than after the request
+   * resolves, so the button responds at once. There is nothing useful to do if the
+   * write fails, and rating is not worth blocking the UI on.
+   */
+  rate(index: number, rating: 'up' | 'down') {
+    const message = this.messages()[index];
+    if (!message || message.role !== 'assistant') return;
+
+    this.messages.update((list) =>
+      list.map((m, i) => (i === index ? { ...m, rating } : m)),
+    );
+    void this.chatService.rate(rating, message.questionId, this.questionFor(index));
+  }
+
+  /** The user question an assistant message was answering. */
+  private questionFor(assistantIndex: number): string | undefined {
+    const list = this.messages();
+    for (let i = assistantIndex - 1; i >= 0; i -= 1) {
+      if (list[i].role === 'user') return list[i].text;
+    }
+    return undefined;
+  }
+
+  /**
    * The conversation as the server needs it.
    *
    * Trimmed to the last HISTORY_TURNS and stripped of UI-only fields. Each
@@ -194,6 +224,7 @@ export class ChatStore {
           status: response.status ?? 'answered',
           confidence: response.confidence,
           rewrite: response.rewrite,
+          questionId: response.questionId,
           retrieved: response.retrieved,
           promptTokens: response.usage?.prompt_tokens,
           provider: response.provider ?? undefined,

@@ -60,6 +60,8 @@ export interface ChatResponse {
   status?: ChatStatus;
   confidence?: ChatConfidence;
   rewrite?: ChatRewrite | null;
+  /** Identifies this answer so a rating can be attached to it. */
+  questionId?: string;
   /** Which model wrote this answer. */
   model?: string | null;
   provider?: string | null;
@@ -134,6 +136,23 @@ export class ChatService {
     const response = await fetch('/api/providers');
     if (!response.ok) throw new Error(`Failed to load providers: ${response.status}`);
     return await response.json();
+  }
+
+  /**
+   * Rate an answer. Deliberately fire-and-forget: a failed rating must never
+   * interrupt the conversation, and there is nothing useful to tell the user if the
+   * log is unavailable.
+   */
+  async rate(rating: 'up' | 'down', questionId?: string, question?: string): Promise<void> {
+    try {
+      await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rating, questionId, question }),
+      });
+    } catch {
+      // Intentionally ignored.
+    }
   }
 
   async ask(

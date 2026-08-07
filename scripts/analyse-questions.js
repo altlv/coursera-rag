@@ -75,6 +75,31 @@ async function run() {
    * A topic asked once and refused may be off-topic; one asked ten times and
    * refused is a gap in the corpus or in retrieval.
    */
+  /*
+   * A thumbs-down outranks every automatic signal.
+   *
+   * `status` says whether the system THOUGHT it answered; a rating says whether it
+   * actually did. An answer marked helpful is fine however low its confidence, and
+   * one marked unhelpful is a problem however confident it looked - which is
+   * exactly the case no automatic metric can catch.
+   */
+  const rated = clusters
+    .map((c) => ({ ...c, down: c.ratings?.down || 0, up: c.ratings?.up || 0 }))
+    .filter((c) => c.down > 0)
+    .sort((a, b) => b.down - a.down || b.total - a.total);
+
+  if (rated.length) {
+    console.log('\nMarked UNHELPFUL by a user - the strongest signal available');
+    console.log('-'.repeat(70));
+    for (const c of rated.slice(0, 10)) {
+      console.log(`  ${c.down} down / ${c.up} up  of ${c.total} asks   "${c.canonical}"`);
+      const topPaths = Object.entries(c.paths).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      if (topPaths.length) console.log(`     retrieved: ${topPaths.map(([p]) => p).join(', ')}`);
+      for (const note of (c.notes || []).slice(0, 2)) console.log(`     note: "${note}"`);
+    }
+    console.log('\n  -> add these to test/holdout-set.mjs with the pages they SHOULD find');
+  }
+
   const gaps = clusters
     .map((c) => {
       const bad = (c.statuses.partial || 0) + (c.statuses.refused || 0);
@@ -94,8 +119,8 @@ async function run() {
       const topPaths = Object.entries(c.paths).sort((a, b) => b[1] - a[1]).slice(0, 3);
       if (topPaths.length) console.log(`     retrieved: ${topPaths.map(([p]) => p).join(', ')}`);
     }
-  } else {
-    console.log('\nNo clusters with partial or refused answers.');
+  } else if (!rated.length) {
+    console.log('\nNo clusters with partial, refused or down-rated answers.');
   }
 
   if (GAPS_ONLY) return;

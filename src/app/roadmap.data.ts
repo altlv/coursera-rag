@@ -432,14 +432,23 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Log questions for analysis',
         detail:
-          'No record of what is actually asked, so the golden set stays fifteen guesses. Should capture the question, the rewritten form, retrieved paths with scores, status, confidence and tokens - enough to reconstruct any decision. It is user data, so it stays gitignored and needs a retention decision before any deployment.',
-        status: 'todo',
+          'An append-only JSONL event log is the source of truth and the clustered index is derived, so the grouping rule can change without losing data. Records the question, rewritten form, retrieved paths with scores, status, confidence and tokens - not the answer prose, which is the largest and most sensitive field. Secrets are redacted before writing, and logging failures are swallowed so a full disk cannot stop the chatbot answering.',
+        status: 'done',
+        where: 'server/question-log.js',
+      },
+      {
+        title: 'Automatic paraphrase grouping - measured and abandoned',
+        detail:
+          'Grouping paraphrases by cosine similarity between question vectors turned out to be impossible: across 30 known-distinct eval questions the maximum similarity between two DIFFERENT questions was 0.712, while a genuine paraphrase scored 0.478. The distributions overlap completely, so no threshold separates them. Off by default; the analysis script surfaces likely-related clusters for a human instead. The 0.93 first guess came from question-to-PASSAGE intuition, which does not transfer.',
+        status: 'done',
+        where: 'server/question-log.js buildIndex()',
       },
       {
         title: 'Feedback loop',
         detail:
-          'Thumbs up/down per answer. Logs alone say what was asked, not whether the answer was good - pairing them is what turns a failure into a regression test.',
-        status: 'todo',
+          'Thumbs up/down per answer, written as separate append-only events. Ratings outrank every automatic signal, because status and confidence only report what the system thought: an answer marked helpful is fine however low its confidence, and one marked unhelpful is a problem however confident it looked. The first real thumbs-down proved it - "how do I get a reference to a child component?" was answered with HIGH confidence while teaching @ViewChild and never mentioning viewChild(), and the retrieval trace showed why: /guide/components/queries never reached the top-k.',
+        status: 'done',
+        where: 'server/index.js /api/feedback, scripts/analyse-questions.js',
       },
       {
         title: 'Semantic cache',

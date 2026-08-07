@@ -29,6 +29,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
+const { randomUUID } = require('crypto');
 
 /** Schema version. The log outlives the code that wrote it. */
 const SCHEMA_VERSION = 1;
@@ -133,8 +134,21 @@ const round = (vector) =>
 function buildIndex(events, { threshold = DEFAULT_SIMILARITY_THRESHOLD } = {}) {
   const clusters = [];
   const byNormalized = new Map();
+  const clusterById = new Map();
+
+  /*
+   * Ratings arrive as separate append-only events, so they are folded in after the
+   * questions they refer to have been clustered. Doing it in one pass would fail
+   * whenever a rating appears before its question in iteration order.
+   */
+  const ratings = [];
 
   for (const event of events) {
+    if (event.kind === 'rating') {
+      ratings.push(event);
+      continue;
+    }
+
     const normalized = normalizeQuestion(event.question);
     if (!normalized) continue;
 
@@ -172,11 +186,14 @@ function buildIndex(events, { threshold = DEFAULT_SIMILARITY_THRESHOLD } = {}) {
         lastSeen: event.at,
         statuses: {},
         paths: {},
+        ratings: { up: 0, down: 0 },
+        notes: [],
       };
       clusters.push(cluster);
     }
 
     byNormalized.set(normalized, cluster);
+    if (event.id) clusterById.set(event.id, cluster);
 
     cluster.total += 1;
     cluster.lastSeen = event.at;
@@ -187,6 +204,19 @@ function buildIndex(events, { threshold = DEFAULT_SIMILARITY_THRESHOLD } = {}) {
     const variant = cluster.variants.find((v) => normalizeQuestion(v.text) === normalized);
     if (variant) variant.count += 1;
     else cluster.variants.push({ text: event.question, count: 1 });
+  }
+
+  /*
+   * Fold ratings in. Matched by id where possible; otherwise by normalised text, so
+   * a rating still lands somewhere useful if the id is missing.
+   */
+  for (const rating of ratings) {
+    const cluster =
+      clusterById.get(rating.questionId) || byNormalized.get(normalizeQuestion(rating.question));
+    if (!cluster) continue;
+
+    cluster.ratings[rating.rating] = (cluster.ratings[rating.rating] || 0) + 1;
+    if (rating.note) cluster.notes.push(rating.note);
   }
 
   clusters.sort((a, b) => b.total - a.total);
@@ -270,6 +300,8 @@ function createQuestionLog({
 
         const event = {
           v: SCHEMA_VERSION,
+          /** Lets a later rating event refer back to this exact answer. */
+          id: randomUUID(),
           at: new Date().toISOString(),
           question: redactSecrets(question),
           ...(rewritten ? { rewritten: redactSecrets(rewritten) } : {}),
@@ -288,13 +320,49 @@ function createQuestionLog({
 
         await fs.appendFile(eventsFile, `${JSON.stringify(event)}\n`, 'utf8');
 
-        // Update the derived index incrementally, from the event just written.
-        if (clusters === null) clusters = buildIndex(await readEvents(), { threshold });
-        else clusters = buildIndex([...(await readEvents())], { threshold });
+        // Re-derive the index from the whole log. Cheap at this scale, and it keeps
+        // one code path for both incremental writes and a full rebuild.
+        clusters = buildIndex(await readEvents(), { threshold });
         await writeIndex();
+
+        return event.id;
       } catch (error) {
         // Deliberately swallowed - see the note on createQuestionLog.
         logger.warn?.(`Question logging failed (continuing): ${error.message}`);
+        return undefined;
+      }
+    },
+
+    /**
+     * Attach a user verdict to a question already logged.
+     *
+     * Written as its own event rather than by editing the original. The log is
+     * append-only, so a rating is a new fact about an existing one - which keeps
+     * the file crash-safe and preserves the order things actually happened in.
+     *
+     * Logs alone say what was asked, not whether the answer was any good. This is
+     * the half that turns a failure into a regression test.
+     */
+    async rate({ questionId, question, rating, note }) {
+      if (!enabled || !['up', 'down'].includes(rating)) return;
+
+      try {
+        await fs.mkdir(dir, { recursive: true });
+        await fs.appendFile(
+          eventsFile,
+          `${JSON.stringify({
+            v: SCHEMA_VERSION,
+            kind: 'rating',
+            at: new Date().toISOString(),
+            questionId,
+            question: redactSecrets(question || ''),
+            rating,
+            ...(note ? { note: redactSecrets(note).slice(0, 500) } : {}),
+          })}\n`,
+          'utf8',
+        );
+      } catch (error) {
+        logger.warn?.(`Rating failed (continuing): ${error.message}`);
       }
     },
 

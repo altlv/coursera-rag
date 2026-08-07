@@ -126,6 +126,26 @@
             </div>
           }
 
+          @if (message.role === 'assistant' && !message.isError && message.status) {
+            <!--
+              Logs record what was asked, not whether the answer was good. This is
+              the half that turns a bad answer into a candidate regression test.
+            -->
+            <div class="rate">
+              @if (message.rating) {
+                <span class="rate-done">{{ message.rating === 'up' ? 'Marked helpful' : 'Marked unhelpful - thanks' }}</span>
+              } @else {
+                <span class="rate-label">Was this helpful?</span>
+                <button class="rate-button" type="button" (click)="store.rate($index, 'up')" title="Helpful">
+                  &#128077;
+                </button>
+                <button class="rate-button" type="button" (click)="store.rate($index, 'down')" title="Not helpful">
+                  &#128078;
+                </button>
+              }
+            </div>
+          }
+
           @if (message.retrieved?.length) {
             <!--
               The retrieval trace. All of this was already in the API response and

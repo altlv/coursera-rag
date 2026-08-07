@@ -322,6 +322,29 @@ Why the intuition failed is the interesting part. 0.93 was ported from **questio
 
 What is left: exact grouping after normalisation (case, spacing, trailing punctuation), each phrasing kept with its own count, and the analysis script surfacing likely-related clusters for a human to judge. Automation would have been wrong here, and only measurement revealed that.
 
+### Ratings outrank every automatic signal
+
+Logs say what was **asked**. They cannot say whether the answer was any **good** — so each answer carries a thumbs up/down, written as its own append-only event referring back to the answer's id.
+
+This matters because `status` and `confidence` only report what the system *thought*. A rating reports what actually happened:
+
+- An answer marked helpful is fine **however low** its confidence
+- One marked unhelpful is a problem **however confident** it looked
+
+That second case is precisely what no automatic metric can catch. In testing, the first real thumbs-down was:
+
+```
+1 down / 0 up   "how do I get a reference to a child component?"
+   retrieved: /guide/templates/ng-template, /guide/di/lightweight-injection-tokens, …
+   note: "taught @ViewChild, never mentioned viewChild()"
+```
+
+The system reported `answered` with **high** confidence. It was wrong — and the retrieved paths show exactly why: `/guide/components/queries` never made the top-k, so the passage describing `viewChild()` was never in the prompt. **The rating identified the failure; the retrieval trace diagnosed it.** Neither alone would have.
+
+That is the loop closing: a bad answer becomes a held-out-set case with the pages it *should* have found, and the eval sets stop being questions someone invented.
+
+Ratings are matched by answer id, falling back to normalised question text, and folded in on a second pass — so a rating logged before the question it refers to still lands correctly rather than being silently dropped.
+
 ### Practices worth copying
 
 - **Never break the request.** Logging failures are swallowed. A full disk must not stop the chatbot answering.

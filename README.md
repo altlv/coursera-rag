@@ -52,7 +52,9 @@ These cover the three behaviours a RAG system has to get right.
 
 The third is the interesting one: it exercises the second line of defence. [Why that matters →](LEARN-RAG.md#three-outcomes-not-two)
 
-Each answer shows the model that wrote it, a confidence badge, and a collapsible **"How this answer was built"** with every passage, its score, the rank each retrieval method gave it, and the token count.
+Each answer shows the model that wrote it, a confidence badge, a thumbs up/down, and a collapsible **"How this answer was built"** with every passage, its score, the rank each retrieval method gave it, and the token count.
+
+Questions are logged to `data/` (gitignored) so `npm run questions` can show what's actually being asked and which answers were rated unhelpful — the eval sets are 30 questions someone invented, and real usage is the only way to improve on that. Disable with `QUESTION_LOG=off`. [Why ratings outrank confidence →](LEARN-RAG.md#ratings-outrank-every-automatic-signal)
 
 ## Commands
 
@@ -70,6 +72,7 @@ Each answer shows the model that wrote it, a confidence badge, and a collapsible
 | `npm run docs:update` | Apply changes, re-embedding only what moved | pennies |
 | `npm run list-models` | Ask each provider what models it offers | free |
 | `npm run compare-providers` | Same passages, different writers | ~$0.01 |
+| `npm run questions` | What was asked, and which answers were rated unhelpful | free |
 
 ## Switching the model
 

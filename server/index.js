@@ -414,6 +414,30 @@ app.get('/api/docs/structure', async () => {
  * comparison script can skip what isn't configured. Reports names only - never
  * key values.
  */
+/**
+ * Rate an answer.
+ *
+ * Question logs say what was asked, not whether the answer was good. This is the
+ * half that turns a bad answer into a candidate regression test - and a thumbs-down
+ * on a question asked repeatedly is the strongest signal available about what to
+ * fix next.
+ */
+app.post('/api/feedback', async (request, reply) => {
+  const { questionId, question, rating, note } = request.body || {};
+
+  if (!['up', 'down'].includes(rating)) {
+    reply.status(400);
+    return { error: "rating must be 'up' or 'down'" };
+  }
+  if (!questionId && !question) {
+    reply.status(400);
+    return { error: 'questionId or question is required' };
+  }
+
+  await questionLog.rate({ questionId, question, rating, note });
+  return { ok: true };
+});
+
 app.get('/api/providers', async () => {
   const configured = listAvailable();
 
@@ -630,7 +654,12 @@ app.post('/api/chat', async (request, reply) => {
    */
   const confidence = assessConfidence({ status, results, citations });
 
-  void questionLog.record({
+  /*
+   * Awaited only to obtain the event id, so the client can attach a rating to this
+   * specific answer. Logging still swallows its own failures, so a slow or broken
+   * log degrades to "no id" rather than a failed request.
+   */
+  const questionId = await questionLog.record({
     question,
     rewritten: rewrite?.rewritten,
     // The query vector already exists from retrieval, so semantic grouping costs
@@ -647,6 +676,8 @@ app.post('/api/chat', async (request, reply) => {
 
   return {
     question,
+    /** Identifies this answer, so a rating can be attached to it. */
+    questionId,
     /** Set only when the follow-up was rewritten, so the UI can show what was searched. */
     rewrite,
     mode,
