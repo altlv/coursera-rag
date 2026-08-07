@@ -278,13 +278,93 @@ function sectionsForReleases(releases) {
 // Page extraction and storage
 // ---------------------------------------------------------------------------
 
+/*
+ * Attributes allowed to survive into stored HTML.
+ *
+ * An ALLOWLIST, not a blocklist. The previous version removed <script> and <style>,
+ * which happens to be sufficient for today's corpus - an audit found no live event
+ * handlers or javascript: URLs, because angular.dev's XSS examples are escaped
+ * inside <code> blocks. But "the source happens to be safe" is not a defence: this
+ * HTML is injected with bypassSecurityTrustHtml, so one interactive demo upstream,
+ * one widened allowlist, or one different corpus and an onerror= would execute.
+ *
+ * With an allowlist, anything unanticipated is dropped rather than passed through.
+ */
+const ALLOWED_ATTRIBUTES = new Set([
+  'href',
+  'src',
+  'alt',
+  'title',
+  'class',
+  'id',
+  'lang',
+  'dir',
+  'colspan',
+  'rowspan',
+  'scope',
+  'width',
+  'height',
+  'loading',
+  'datetime',
+  'start',
+  'type',
+]);
+
+/** Elements removed entirely, contents and all. */
+const FORBIDDEN_ELEMENTS =
+  'script, style, noscript, iframe, object, embed, form, input, button, textarea, select, link, meta, base, svg use, template';
+
+/** URL schemes permitted in href/src. Anything else becomes inert. */
+const SAFE_URL = /^(?:https?:|mailto:|#|\/|\.{1,2}\/)/i;
+
+/**
+ * Strip anything executable from scraped markup.
+ *
+ * Runs on a parsed DOM rather than by regex, because attribute detection in raw HTML
+ * is unreliable - an escaped example inside a code block looks identical to live
+ * markup to a pattern matcher, which produced a false positive during the audit.
+ */
+function sanitizeElement(root) {
+  let removed = 0;
+
+  for (const node of root.querySelectorAll(FORBIDDEN_ELEMENTS)) {
+    node.remove();
+    removed += 1;
+  }
+
+  for (const element of root.querySelectorAll('*')) {
+    // Copy the list first: removing attributes mutates the live collection.
+    for (const name of [...element.getAttributeNames()]) {
+      const lower = name.toLowerCase();
+
+      // Every on* handler, plus anything not explicitly allowed.
+      if (!ALLOWED_ATTRIBUTES.has(lower)) {
+        element.removeAttribute(name);
+        removed += 1;
+        continue;
+      }
+
+      if (lower === 'href' || lower === 'src') {
+        const value = (element.getAttribute(name) || '').trim();
+        // javascript:, data:, vbscript: and anything else unrecognised.
+        if (value && !SAFE_URL.test(value)) {
+          element.removeAttribute(name);
+          removed += 1;
+        }
+      }
+    }
+  }
+
+  return removed;
+}
+
 /**
  * Extract the readable article from a docs page.
  *
- * <script> and <style> are removed at source: the article body is later injected
- * into the docs viewer with bypassSecurityTrustHtml, so stripping executable
- * content here means the app is never handed any. Navigation chrome goes too,
- * or text repeated identically on every page would pollute the embeddings.
+ * Executable content is removed at source, so the app is never handed any: the
+ * article body is later injected into the docs viewer with bypassSecurityTrustHtml.
+ * Navigation chrome goes too, or text repeated identically on every page would
+ * pollute the embeddings.
  */
 function extractPage(html, pagePath) {
   const dom = new JSDOM(html);
@@ -293,9 +373,11 @@ function extractPage(html, pagePath) {
 
   main
     .querySelectorAll(
-      'script, style, noscript, nav, aside, adev-secondary-navigation, .docs-toc, docs-breadcrumb, button.docs-copy-source-code',
+      'nav, aside, adev-secondary-navigation, .docs-toc, docs-breadcrumb, button.docs-copy-source-code',
     )
     .forEach((node) => node.remove());
+
+  sanitizeElement(main);
 
   const heading = main.querySelector('h1');
   const title = (heading?.textContent || doc.title || pagePath).trim().replace(/\s+/g, ' ');
@@ -526,6 +608,8 @@ module.exports = {
   sectionsForReleases,
   compareSemver,
   extractPage,
+  sanitizeElement,
+  ALLOWED_ATTRIBUTES,
   isRedirectStub,
   redirectTargetOf,
   MIN_CONTENT_CHARS,
