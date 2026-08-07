@@ -1,3 +1,5 @@
+const { supersededApiNote } = require('./api-pairs');
+
 /*
  * The RAG pipeline, as pure and testable functions.
  *
@@ -738,6 +740,19 @@ function buildPrompt(question, chunks, { history = [], provider } = {}) {
   }
 
   parts.push(`Context passages:\n\n${context}`);
+
+  /*
+   * Name any supersession the passages do not state themselves.
+   *
+   * The corpus documents @ViewChild five times more often than viewChild() on the
+   * page that covers both, so retrieval routinely supplies only the legacy form -
+   * and the model then presents it as the only option. Two retrieval-side fixes for
+   * this measured worse (see server/api-pairs.js), because the imbalance is inside
+   * a page rather than between pages. Supplying the fact directly is what works.
+   */
+  const apiNote = supersededApiNote(chunks);
+  if (apiNote) parts.push(apiNote);
+
   parts.push(`---\n\nQuestion: ${question}`);
 
   return { system: SYSTEM_PROMPT, user: parts.join('\n\n') };

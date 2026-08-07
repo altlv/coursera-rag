@@ -310,10 +310,11 @@ export const ROADMAP: RoadmapPhase[] = [
         status: 'todo',
       },
       {
-        title: 'Retrieve both sides of an old/new API pair',
+        title: 'Name superseded APIs the corpus does not flag',
         detail:
-          'Diagnosed, and two candidate fixes rejected by measurement. MMR reranking for diversity made hit@3 WORSE at every lambda (93% to 80-87%) because it displaced the correct page, and raising maxPerPage was worse too - 2 was already optimal. The real cause is passage-level imbalance inside one page: /guide/components/queries has 15 passages, 5 mentioning @ViewChild and exactly 1 mentioning viewChild(), so with two slots per page the modern API rarely wins. No page-level algorithm can reach that. Also note hit@3 cannot measure this at all - it asks whether the right page ranked, not whether both APIs were shown - so a direct API-pair coverage metric was needed, currently 1 of 4. Honest fix is corpus-level metadata marking superseded APIs. MMR is kept, defaulted off, since it may help a corpus with genuine redundancy.',
-        status: 'todo',
+          'Two retrieval-side fixes were tried and both measured WORSE: MMR reranking took hit@3 from 93% to 80-87% by displacing the correct page, and raising maxPerPage reached 87% - 2 was already optimal. The cause is passage-level imbalance inside one page (/guide/components/queries: 5 passages mention @ViewChild, exactly 1 mentions viewChild()), which no page-level ranking change can reach. What worked was supplying the fact instead: a curated list of superseded APIs adds a prompt note naming the modern form, but only when the passages contain the legacy API and NOT its replacement. The answer that a user had marked unhelpful now reads "However, modern Angular prefers the signal-based viewChild()", all four API-pair questions behave correctly, and retrieval is untouched at hit@3 93%. Cost: a hand-maintained list that will go stale - mitigated by a test asserting every API named still appears in the corpus in both forms.',
+        status: 'done',
+        where: 'server/api-pairs.js',
       },
       {
         title: 'Validate generated code samples',

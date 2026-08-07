@@ -183,9 +183,29 @@ Diversity rose; the *correct* page got displaced. One question lost its answer e
 1. A principled technique can be wrong for your data. MMR assumes redundancy is the problem; here the problem was scarcity of one viewpoint.
 2. **hit@3 cannot measure what I was trying to fix.** It asks "is the correct page in the top 3", not "were both competing APIs shown". So even a *working* diversity fix would have scored neutral-or-worse. I reached for a different algorithm when I needed a different metric — and only building the direct measurement (API-pair coverage: 1 of 4 questions retrieved both sides) made that visible.
 
-A useful reframing came out of that measurement too: of the four API-pair questions, two retrieved **only the new API**, which is arguably *correct* — teach the current way. Only the `@ViewChild` case retrieved only the *legacy* API. So the defect is narrower than it first appeared, and the honest fix is corpus-level metadata marking superseded APIs, not a cleverer ranker.
+A useful reframing came out of that measurement too: of the four API-pair questions, two retrieved **only the new API**, which is arguably *correct* — teach the current way. Only the `@ViewChild` case retrieved only the *legacy* API. So the defect was narrower than it first appeared.
 
 MMR is kept in the code, defaulted off, because it may well help a corpus with genuine redundancy. `npm run eval -- --mmr=0.7` re-runs the comparison.
+
+### What did work: telling the model the fact
+
+If the corpus states a fact inconsistently, supply the fact rather than reranking around it.
+
+`server/api-pairs.js` holds a small list of superseded Angular APIs — `@ViewChild` → `viewChild()`, `@HostListener` → the `host` object, and so on. When retrieved passages contain a legacy API **and not** its replacement, the prompt gains a short note naming the modern form, with an explicit instruction not to invent details about it.
+
+The `and not` clause matters: when both forms are already present the model has what it needs, and adding a note would risk it repeating a caveat the passages already make.
+
+The result, on the exact question a user had marked unhelpful:
+
+> You can get a reference to a child component using the `@ViewChild` or `@ContentChild` decorators. **However, modern Angular prefers the signal-based `viewChild()` and `contentChild()` queries.**
+
+All four API-pair questions now behave correctly, and **retrieval is untouched** — hit@1 73%, hit@3 93%, MRR 0.822, exactly as before. That is the point: the fix sits in the layer where the problem actually was.
+
+**Why not infer it from the text?** Because the passages mentioning `@ViewChild` mostly do not say it is superseded. The corpus does not reliably state the thing we need, which is precisely why it has to come from outside.
+
+**The honest cost:** this is a hand-maintained list. It does not generalise to another corpus and it will go stale as Angular evolves. That is mitigated rather than solved — a test asserts every API named here still appears in the corpus, in both its legacy and modern form, so an entry that stops being true fails a test instead of quietly misinforming users.
+
+One last note on measurement discipline: my first verification script reported this case as broken because its regex looked for `output(` while the answer contained `output<void>()`. **The check was wrong, not the code.** Worth remembering that a failing measurement is a claim about two things — the system and the measurement — and either can be at fault.
 
 ### Searching two versions of the question
 
