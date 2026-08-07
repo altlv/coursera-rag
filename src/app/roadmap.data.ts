@@ -475,15 +475,16 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Document the safeguards',
         detail:
-          'The guard inventory has no single home: why cross-model vectors are incompatible and fail silently, what each guard prevents, and which gaps remain open.',
-        status: 'todo',
-        where: 'README.md',
+          'The guard inventory now lives in LEARN-RAG.md: why cross-model vectors are incompatible and fail silently, the six places that is guarded and what each one prevents, the related trap of a classification-trained embedding model, and a standing list of gaps still open.',
+        status: 'done',
+        where: 'LEARN-RAG.md',
       },
       {
         title: 'LEARN-RAG.md',
         detail:
-          'The teaching deliverable. What an embedding is, why unit-normalising turns cosine into a dot product, how chunk size was chosen, why retrieval and generation must be evaluated separately, how rank fusion works, and when a real vector database would start to earn its place. Written last, because it documents settled architecture.',
-        status: 'todo',
+          'The teaching deliverable, and the reason the README shrank from 475 lines to 156. Walks the pipeline in order and explains each stage through what actually happened here - including the hypotheses that failed: the paraphrase threshold that could not exist, MMR making retrieval worse, contextual chunking that the golden set could not measure. Ends with known gaps and experiments to run, since watching the numbers move is what makes the concepts stick.',
+        status: 'done',
+        where: 'LEARN-RAG.md',
       },
     ],
   },
