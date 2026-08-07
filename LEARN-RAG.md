@@ -1,0 +1,344 @@
+# Learning RAG by building one
+
+Design choices and reasoning from building this Angular documentation chatbot.
+
+Nearly every section here follows the same shape: **we assumed something, measured it, and were sometimes wrong.** That is deliberate. The measurements are what make the concepts stick, and several of the most useful lessons came from a hypothesis failing.
+
+Setup and commands live in [README.md](README.md). This file is about *why*.
+
+---
+
+## What RAG is, in one paragraph
+
+A language model knows what it was trained on. It does not know your documentation, and it will confidently invent plausible answers about it. **Retrieval-Augmented Generation** fixes that by not asking the model to remember anything: find the relevant passages first, put them in the prompt, and instruct the model to answer only from those. The model contributes language ability; the documents contribute facts.
+
+Five stages, each with its own failure modes:
+
+```
+scrape → chunk → embed → retrieve → generate
+```
+
+The rest of this file walks them in order.
+
+---
+
+## Stage 1: Getting the documents
+
+**The lesson: a scraper that "works" can silently capture almost nothing.**
+
+The first version parsed the docs sidebar from a single page. It produced 23 pages and looked fine — until you asked about signals and got AI-tooling pages that merely contained the word.
+
+The cause: angular.dev renders collapsed nav sections as a `<button>` with **no child `<ul>`**, because Angular expands them lazily in the browser. A scraper reading raw HTML sees the section's *name* but none of its pages. So Signals, Components, Templates, Directives, Forms, Routing, HTTP and DI were all absent, and the nav showed 28 entries with no path, which the UI rendered as dead links.
+
+Reading `sitemap.xml` instead — the site's own machine-readable index — took it to 114 pages. It needs no JavaScript and cannot silently omit lazily-rendered branches.
+
+**Redirect shells.** 21 of 135 URLs turned out to serve only a client-side redirect: a `<meta refresh>` and the line *"Redirecting to /guide/…"*, 24–83 characters long. They filled the sidebar with entries titled "Redirecting" and the vector store with near-empty passages — which can still win a similarity comparison against a short question.
+
+Three details worth stealing:
+
+- **Filter on length *and* wording.** Length alone would have dropped `/guide/routing/redirecting-routes`, a genuine 4,897-character page *about* redirects.
+- **Redirects chain.** `/guide/components/importing` → `/guide/components/anatomy-of-components` → `/guide/components`. A one-hop check reported false gaps.
+- **Warn when a target falls outside your allowlist**, or that topic becomes silently unanswerable. That check caught `/ecosystem/rxjs-interop`.
+
+---
+
+## Stage 2: Chunking
+
+**The lesson: chunking bugs do not throw. They just quietly ruin retrieval.**
+
+The original code did this:
+
+```js
+normalizeText()  // replace(/\s+/g, ' ')  ← destroys every newline
+chunkText()      // split(/\n{2,}/)       ← can now never match
+```
+
+Every page became **one chunk**, up to 53,547 characters, and the `maxChars` limit was never reached because the splitting loop was unreachable. Nothing errored. Retrieval "worked" — it returned whole pages, so a question cost **10,431 prompt tokens** and the model had to find the answer itself inside a wall of text.
+
+Fixing it: ~1,200 characters per passage with 150 of overlap. Tokens per question fell to **~1,300**, an 8× reduction.
+
+### Why ~1,200 characters
+
+Roughly 300 tokens. Big enough to hold a complete thought, small enough that a retrieved passage is mostly signal. Too small and you cut sentences in half; too large and the model gets a haystack again.
+
+### Why overlap
+
+A fact can straddle a boundary. Without overlap, *"signals are created with"* and *"the signal() function"* become two passages that each answer nothing.
+
+### Contextual chunking — the fix I could not prove
+
+A mid-page passage was embedded with no trace of which page it came from:
+
+```
+passage: "Native HTML elements capture several standard interaction patterns..."
+page:    "Accessibility in Angular"   ← nowhere in the embedded text
+```
+
+Meanwhile the keyword scorer *did* read the title. The two halves of retrieval disagreed about what a passage even was. Prepending the title before embedding fixed that — and the golden set reported **no change whatsoever**, because it was saturated.
+
+Only the held-out set could see it: hit@1 **67% → 73%**, MRR **0.789 → 0.822**. More on why that matters in [Evaluation](#evaluating-a-rag-system).
+
+### Still broken
+
+Chunking splits on blank lines and knows nothing about fenced code, so an 80-line example lands in two passages. For a *documentation* assistant, where the code is often the whole answer, that is a real defect.
+
+---
+
+## Stage 3: Embeddings
+
+An embedding model maps text to a list of numbers — here 512 of them. Texts with similar meaning get vectors pointing in similar directions, so "similar meaning" becomes "small angle between vectors", which is arithmetic you can do a million times a second.
+
+### Cosine similarity, and why we do not compute it
+
+Cosine similarity is:
+
+```
+cos(a,b) = dot(a,b) / (|a| × |b|)
+```
+
+If both vectors are already **unit length**, the denominator is 1 and cosine *is* the dot product. So vectors are normalised once at build time, and query time becomes a single multiply-add loop — no square roots, no per-comparison magnitude. The original code recomputed both magnitudes for every chunk on every query.
+
+### 512 dimensions instead of 1536
+
+`text-embedding-3-small` is trained so a **truncated prefix is still a valid embedding** (a "Matryoshka" property). Asking for 512 costs roughly 1% retrieval quality for a third of the space and a third of the work per comparison.
+
+### Storage: why not JSON
+
+A 1536-float array serialises to ~30–45 KB of JSON *text*. At 1,122 passages that is about **45 MB to parse on every server start**. Stored as raw `Float32` in a binary file it is **2.2 MB**, and loading is a file read plus a typed-array view — no parsing at all.
+
+### The failure that returns plausible numbers
+
+**Vectors from two different models are incompatible, and comparing them does not throw.**
+
+The axes of an embedding space are arbitrary — dimension 47 does not mean "is about routing". The geometry is an artifact of one training run. Two models produce two unrelated coordinate systems with no transformation between them, because nothing ever aligned them. A cosine similarity across them measures the incidental overlap of two arbitrary bases: numbers in [-1, 1] that look completely normal, and a confidently wrong ranking.
+
+The tell-tale symptom is **the same few passages returned regardless of the question**.
+
+This extends further than "a different model": `3-small` vs `3-large` are different spaces, and so is the same model at a different dimension count. It is not that two encoders can *never* share a space — it is that they must be **trained to**, as dense-retrieval architectures do with paired query and passage encoders. Two independently trained models never qualify.
+
+Because it fails silently, it is guarded in six places — see [Silent failures](#silent-failures).
+
+### A related trap: the wrong kind of embedding model
+
+An embedding model trained for **classification** will return unrelated results even used correctly on both sides. Its objective taught it to encode *label identity* and discard intra-class detail, and it never saw query–document pairs, so it has no reason to place a question near its answer. Similarity in that space means "same category", not "answers this".
+
+Nothing in the API surface tells you. **"We used embeddings" says almost nothing about whether retrieval will work** — the training objective decides it.
+
+---
+
+## Stage 4: Retrieval
+
+### The similarity floor, and free refusals
+
+Passages below a similarity of 0.25 are discarded. If nothing clears it, the server returns *"not in these docs"* **without calling the model at all**.
+
+That makes a refusal free, deterministic, and impossible to confuse with a guess — the model never gets the chance to answer from its own memory. *"Got milk?"* retrieves zero passages and costs nothing.
+
+### Scores are lower than you expect, and that is fine
+
+A strong match here scores about **0.47**, not 0.9. Passages are ~1,200 characters, so a broad question only ever overlaps part of one. **The gap between signal and noise matters, not the absolute value.**
+
+### Hybrid search: meaning and words disagree usefully
+
+Embeddings match meaning but skate over exact terminology. Measured: *"how do I pass data into a component?"* ranked `/guide/components/inputs` only **5th**, because the question says "pass data" and the page says "input".
+
+Adding BM25 keyword scoring moved it to **1st**. But the two scores cannot be added — cosine sits in ~0.25–0.65 while BM25 is unbounded and corpus-dependent, so one would silently dominate. **Reciprocal Rank Fusion** combines *positions* instead:
+
+```
+fused(passage) = Σ over methods of  1 / (60 + rank)
+```
+
+This rewards agreement: a passage ranked 1st by one method and 10th by the other beats one ranked 5th by both.
+
+Keyword scoring here only reranks passages that already cleared the floor, rather than pulling in new ones. That preserves the free refusal — otherwise *"Got milk?"* could drag in a passage containing "milk". The cost: a passage with strong exact-term overlap but weak semantic similarity can never be recalled.
+
+### Diversity cap
+
+At most 2 passages per page. Without it the top-k collapses onto one well-matched page — *"What does CSS stand for?"* spent 2 of 5 slots on duplicates, so 40% of the context window carried material the model had already seen. Adjacent passages also overlap by 150 characters *by design*.
+
+### Searching two versions of the question
+
+Query rewriting (see [Working memory](#working-memory)) turns a follow-up into a standalone question. It is a large improvement — and **not reliably better**:
+
+| Follow-up | As typed | Rewritten |
+| --- | --- | --- |
+| *"how do I test it?"* | `/guide/http/testing` — wrong subject | `/guide/forms/…` — better |
+| *"what about validation?"* | `form-validation` at **rank 1** | dropped out of the top 3 |
+
+"Validation" is already distinctive; adding "reactive forms" context diluted it. No heuristic predicts which wins.
+
+So **don't choose** — search both and fuse all four rankings. The machinery already existed. Result: *"how do I test it?"* found `/guide/forms/signals/testing`, which **neither formulation found alone**.
+
+---
+
+## Stage 5: Generation
+
+### Grounding
+
+The system prompt says: answer **only** from these passages, cite them as `[1]`, `[2]`, and if they do not contain the answer, say so. The passages are numbered so citations can be checked.
+
+### Three outcomes, not two
+
+| Status | Meaning |
+| --- | --- |
+| `answered` | The passages covered it |
+| `partial` | Passages were found, but none answer the question |
+| `refused` | Nothing cleared the floor |
+
+`partial` exists because **retrieval cannot detect that case on score alone**. *"What does CSS stand for?"* scores **0.457** — higher than several genuine Angular questions — because the styling and security pages really are about CSS. Retrieval is behaving correctly; what is missing is the definition of an acronym. Only the model, reading the passages, can tell.
+
+It signals that with an explicit `NO_ANSWER_IN_DOCS` sentinel. The tempting alternative — "it cited nothing, so it must have failed" — breaks the moment a model answers correctly without citing.
+
+### The hallucination guard
+
+Any citation pointing outside the supplied range is stripped. A model citing `[7]` when given 4 passages is inventing a source, and **an unchecked citation is worse than none, because it looks verified**.
+
+Note what this does *not* check: that the claim actually came from passage *n*. Range, not attribution.
+
+### Contradictions: the guard's blind spot
+
+Passages are chosen for similarity to the question and **never for agreeing with each other**. Version drift, or a deprecated API beside its replacement, puts conflicting claims in one prompt — and a model told to "answer from the context" faithfully reproduces both.
+
+The citation guard cannot help: it verifies a source was *supplied*, not that sources *agree*.
+
+Two changes: passages carry their **rank** (ordinal, because raw scores sit in a narrow band that reads as "all equal"), and the prompt asks for conflict to be stated with both sides cited.
+
+Angular's docs contain real old/new API pairs, so this is testable for real. Sweeping found `@ViewChild` (4 pages) vs `viewChild()` (2), `@HostListener` (2) vs the `host` object (7) — each taught on *different* pages.
+
+**It works when both sides are retrieved.** *"How do I listen to an event on the host element?"*:
+
+> Alternatively, you can use the `@HostListener` decorator… However, it is recommended to prefer using the `host` property… as the latter exists for backwards compatibility `[1][2]`
+
+**And here is the limitation.** *"How do I get a reference to a child component?"* taught `@ViewChild` and never mentioned `viewChild()`, because the signal-query passage never reached the top-k. **The prompt cannot flag a conflict it was never shown.** This is a generation defence resting on a retrieval assumption.
+
+---
+
+## Working memory
+
+Every question used to be embedded alone, so *"what about effects?"* carried almost nothing searchable.
+
+**Query rewriting, not concatenation.** Appending the history produces a vector averaged across several topics that matches none of them well. Instead, one cheap model call turns the follow-up into a standalone question.
+
+**The rewrite is built from the user's own questions plus retrieved doc paths — never from model prose.** That is what keeps retrieval independent of which model is active. If answer text fed the rewrite, switching provider would change what gets found, and comparing providers on identical passages would be meaningless. The rewriter is **pinned** to one provider for the same reason embeddings are.
+
+**Three exchanges of history** reach the answer prompt. A deliberate limit: it covers the follow-ups a documentation assistant actually gets — *"explain that more simply"*, *"are you sure?"* — all referring to the immediately preceding answer. Older context survives because rewriting folds it into the standalone question.
+
+**Switching models mid-conversation** keeps the history, and answers written by a *different* model are **labelled**. Without that, model B reads model A's answer as its own previous turn and inherits it — defending a claim, or standing by a refusal, it never made.
+
+---
+
+## Confidence
+
+The tempting implementation is `confidence = top similarity score`. It would actively mislead:
+
+| Question | Top score | Reality |
+| --- | --- | --- |
+| `What does CSS stand for?` | 0.457 | Docs cannot answer it |
+| `how do I loop over a list in a template?` | 0.475 | Correct answer |
+
+An 0.018 gap. **Similarity measures topical closeness, not whether the answer is present.**
+
+So confidence is composite, in descending order of usefulness: the model's own **status** verdict, **citation coverage**, the **score gap** between the top hit and the rest, and how many **distinct pages** corroborate. Reported as high/medium/low with reasons — never a percentage, because the inputs do not support that precision and "73% confident" invites trust it has not earned.
+
+**Known limitation.** Identical passages produced opposite verdicts: `llama-3.3-70b` answered with high confidence where `gpt-4o-mini` returned partial/low. Since `status` is weighted most heavily and *is* the model's own judgement, confidence is comparable **within** a provider, not **across** them.
+
+---
+
+## Evaluating a RAG system
+
+**If you take one thing from this file, take this section.**
+
+### Retrieval and generation must be measured separately
+
+Retrieval is deterministic; generation is not. Measuring them together tells you something is wrong without telling you which half. Retrieval gets a golden set; generation gets contract assertions with a fake model.
+
+### Cache the question vectors
+
+Searching requires embedding the *question*, which is an API call — so a naive retrieval test costs money every run, needs the network, and cannot run in CI. Since the test questions are fixed, embed them **once** and commit the vectors. The suite then does nothing but dot products: free, offline, milliseconds.
+
+It also **pins** them. Embedding endpoints are not guaranteed stable forever, so cached vectors mean the test measures *your* changes rather than provider drift.
+
+### Assert acceptable sets, not exact pages
+
+*"How do I make an HTTP request?"* is legitimately answered by `/guide/http` **or** `/guide/http/making-requests`. Exact-match assertions punish correct behaviour.
+
+### Negative cases are as important as positive ones
+
+A retriever that returns its five least-bad passages for **every** question scores perfectly on positives alone while being useless. So the set includes *"Got milk?"* (must retrieve nothing) and *"What does CSS stand for?"* (retrieves confidently, but nothing answers it).
+
+### The mistake I made: evaluating on what I tuned
+
+Hybrid retrieval, the diversity cap and the score floor were all chosen **while watching the golden set**. It then reported hit@3 13/13 and MRR 1.000.
+
+That number is not trustworthy. It describes the tuning, not the system. Worse, being saturated, **it cannot detect a change in either direction** — which is exactly what happened with contextual chunking: identical numbers before and after, no signal at all.
+
+A **held-out set** of 15 questions, never used for tuning, targeting details in the middle of long pages and phrased to avoid echoing page titles:
+
+| Set | hit@1 | hit@3 | MRR |
+| --- | --- | --- | --- |
+| Golden (tuned against) | 100% | 100% | 1.000 |
+| **Held-out (never tuned)** | **73%** | **93%** | **0.822** |
+
+**The gap between those rows is the cost of evaluating on what you tuned.**
+
+Two rules that keep it honest: thresholds sit *below* current performance, so they are regression guards rather than targets; and a test asserts the held-out set is still *harder* than the golden one, so it cannot be quietly made easier to go green.
+
+---
+
+## Silent failures
+
+The failures worth engineering against are the ones that return plausible output while being wrong. Embedding-space mismatch is guarded six ways:
+
+| Guard | Prevents |
+| --- | --- |
+| Store records model + dimensions | Ambiguity about what built it |
+| `vectors.bin` length checked against `chunks × dims` | A mismatched store loading anyway |
+| `dotProduct` **throws** on length mismatch | Silently scoring the overlap of two unrelated spaces |
+| `embedQuery` reads the model *from the store* | The two drifting apart — it was previously declared twice |
+| Fixture asserts a matching space | A test suite that passes while measuring nothing |
+| `createEmbedder` ignores `CHAT_PROVIDER` | Switching chat model silently corrupting retrieval |
+
+The general principle: **when a wrong answer is indistinguishable from a right one, fail loudly at the boundary.**
+
+The same reasoning drives provider handling. A key can be present and unusable — xAI returned `403 no credits`, Gemini `429` on a fresh key. Both valid keys; one recoverable, one not. Failures are classified **permanent** or **transient**, and only permanent ones remove a provider. Unknown failures **fail open**, because a misclassified transient recovers on its own whereas a wrongly-permanent one is gone until restart.
+
+---
+
+## What is still wrong
+
+Kept deliberately, because a list of known gaps is more useful than a claim of completeness:
+
+- **Retrieval doesn't guarantee both sides of an API pair.** The assistant will still sometimes present a legacy API as the only option.
+- **Generated code is never validated.** Observed: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample.
+- **Code samples split across chunks.**
+- **Prompt injection from documents** — `<script>` is stripped, text is not. Retrieved content is third-party input by definition.
+- **Citation attribution unverified** — range is checked, provenance is not.
+- **Lost in the middle** — models attend least to the middle of a long context; we pass passages by rank and ignore position.
+- **Confidence is provider-dependent.**
+- **No question logging**, so the eval sets remain 30 questions someone guessed.
+
+---
+
+## Try this yourself
+
+The fastest way to build intuition is to break things and watch the numbers move.
+
+```bash
+npm run eval                      # both sets, current store
+npm run eval -- --compare=DIR     # A/B two stores, with rank changes
+```
+
+- **Change `CHUNK_CHARS`** in `build-vector-store.js` to 400, rebuild, re-evaluate. Precision usually rises, recall falls.
+- **Set `SCORE_FLOOR` to 0.1**, then ask *"Got milk?"* — watch a free refusal turn into a confident non-answer.
+- **Set `maxPerPage` to 5** and see the top-k collapse onto one page.
+- **Turn off keyword fusion** and re-check *"how do I pass data into a component?"*.
+- **Drop the grounding instruction** from `SYSTEM_PROMPT` and ask *"What does CSS stand for?"* — the model will answer from its own knowledge while citing Angular pages.
+- **Add a question to the held-out set**, but never tune against it.
+
+---
+
+## When to reach for a real vector database
+
+Not yet. 1,122 passages × 512 dimensions is about 575k multiply-adds per query — a couple of milliseconds of brute force. ANN indexes only start paying off around 10⁵–10⁶ vectors, and adopting one here would add dependencies while hiding the mechanics this file is about.
+
+The signals that it is time: **metadata filtering** ("search only `/guide/forms`"), cross-session persistence, or more vectors than fit comfortably in memory. `sqlite-vec` is the natural next step — single file, no server, real KNN, SQL filtering.
