@@ -37,6 +37,8 @@
  * grounding failure worth knowing about.
  */
 
+const { SUPERSEDED_APIS } = require('./api-pairs');
+
 /*
  * Four shapes, chosen by probing the corpus rather than guessing. Each was checked
  * for what it drags in as well as what it catches:
@@ -196,10 +198,29 @@ function verifyAttribution({ answer, chunks = [], knownIdentifiers = null }) {
       // Present somewhere, but not in anything this sentence credited.
       const citedCorrectly = claim.citations.some((n) => actual.includes(n));
       if (!citedCorrectly) {
+        /*
+         * Severity depends on whether the cited PAGE is right.
+         *
+         * The top-k allows 2 passages per page, so [1] and [2] are frequently two
+         * paragraphs of the same document. Measured: 3 of 4 misattributions found on
+         * llama-3.3-70b were of exactly that kind. Since the UI surfaces sources per
+         * page, citing the wrong paragraph of the right page sends the reader
+         * somewhere the claim genuinely is - cosmetic, not misleading.
+         *
+         * Citing a different PAGE is the real defect: the reader follows the link and
+         * the claim is not there.
+         */
+        const citedPaths = new Set(
+          claim.citations.map((n) => chunks[n - 1]?.path).filter(Boolean),
+        );
+        const actualPaths = new Set(actual.map((n) => chunks[n - 1]?.path).filter(Boolean));
+        const samePage = [...actualPaths].some((p) => citedPaths.has(p));
+
         misattributed.push({
           identifier,
           cited: claim.citations,
           actual,
+          samePage,
           sentence: claim.text.trim(),
         });
       }
@@ -215,6 +236,139 @@ function verifyAttribution({ answer, chunks = [], knownIdentifiers = null }) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Code sample validation
+// ---------------------------------------------------------------------------
+
+/*
+ * For a documentation assistant the code is frequently the whole answer, so a
+ * sample that does not compile is worse than prose that is merely vague. Two
+ * defects were observed directly from real models:
+ *
+ *   1. '@component' in lowercase.
+ *   2. '@Input()' and 'input()' mixed in one sample - both real APIs, but one
+ *      supersedes the other, so using both together is incoherent.
+ *
+ * Casing is DERIVED from the corpus rather than curated. The docs already contain
+ * the correct spellings, so a name the corpus only ever writes one way can be
+ * checked without maintaining a list that goes stale as Angular evolves - the
+ * explicit weakness of the hand-written SUPERSEDED_APIS table in api-pairs.js.
+ *
+ * Measured on this corpus: of 2,033 normalised names, 1,908 have exactly one
+ * casing. The remaining 125 are genuinely ambiguous, and they are almost exactly
+ * the legacy/modern pairs - 'ViewChild' the decorator versus 'viewChild()' the
+ * function, 'Input' versus 'input'. Those are skipped here, because casing cannot
+ * distinguish a legacy API from a modern one. The API-pair check below covers
+ * precisely that blind spot, which is why both exist.
+ */
+
+/** Raw spellings, case PRESERVED - the whole point is comparing casing. */
+const RAW_IDENTIFIER_PATTERNS = [
+  /@[A-Za-z][A-Za-z0-9]*/g,
+  /\b[A-Za-z][A-Za-z0-9]*\(\)/g,
+  /\b[a-zA-Z]+[A-Z][A-Za-z0-9]*\b/g,
+];
+
+/** Strip the decoration but keep the casing: '@Component' and 'Component()' -> 'Component'. */
+function bareSpelling(raw) {
+  return raw.replace(/^@/, '').replace(/\(\)$/, '');
+}
+
+/** Fenced blocks only, without fences or language tag. Inline backticks are references, not samples. */
+function extractCodeBlocks(answer) {
+  const blocks = [];
+  for (const match of (answer || '').matchAll(/```[a-zA-Z0-9]*\n?([\s\S]*?)```/g)) {
+    blocks.push(match[1]);
+  }
+  return blocks;
+}
+
+/**
+ * normalised name -> the corpus's single casing for it.
+ *
+ * Names spelled more than one way are OMITTED rather than resolved by frequency.
+ * Picking the commoner casing would make the check confidently wrong on the very
+ * names where both forms are real.
+ */
+function buildCanonicalSpellings(chunks = []) {
+  const observed = new Map();
+
+  for (const chunk of chunks) {
+    for (const pattern of RAW_IDENTIFIER_PATTERNS) {
+      for (const match of (chunk.text || '').matchAll(pattern)) {
+        const spelling = bareSpelling(match[0]);
+        const key = spelling.toLowerCase();
+        if (key.length < 3 || PROSE_STOPLIST.has(key)) continue;
+        if (!observed.has(key)) observed.set(key, new Set());
+        observed.get(key).add(spelling);
+      }
+    }
+  }
+
+  const canonical = new Map();
+  for (const [key, spellings] of observed) {
+    if (spellings.size === 1) canonical.set(key, [...spellings][0]);
+  }
+  return canonical;
+}
+
+/**
+ * Check the code blocks in an answer.
+ *
+ * Restricted to fenced blocks on purpose. In prose "a component" is ordinary
+ * English, and checking casing there would flag nearly every answer - noise that
+ * would bury the real findings.
+ */
+function validateCodeSamples({ answer, canonical = null, pairs = SUPERSEDED_APIS }) {
+  const casing = [];
+  const mixedApi = [];
+  const blocks = extractCodeBlocks(answer);
+
+  for (const block of blocks) {
+    if (canonical) {
+      const reported = new Set();
+      for (const pattern of RAW_IDENTIFIER_PATTERNS) {
+        for (const match of block.matchAll(pattern)) {
+          const spelling = bareSpelling(match[0]);
+          const key = spelling.toLowerCase();
+          const expected = canonical.get(key);
+          if (!expected || expected === spelling || reported.has(key)) continue;
+          reported.add(key);
+          casing.push({ found: spelling, expected, sample: block.trim().slice(0, 200) });
+        }
+      }
+    }
+
+    /*
+     * Checked per block, not per answer. Showing the legacy form and then the
+     * modern one in two separate samples is good teaching; only a mix WITHIN one
+     * sample is incoherent.
+     *
+     * Note the legacy form ALONE is deliberately not reported. That is a currency
+     * problem rather than an incoherence one, it is already handled by the prompt
+     * note in api-pairs.js, and flagging it here would punish an answer that
+     * faithfully reflects a page documenting only the old way.
+     */
+    for (const pair of pairs) {
+      if (pair.pattern.test(block) && pair.replacementPattern.test(block)) {
+        mixedApi.push({
+          old: pair.old,
+          replacement: pair.replacement,
+          sample: block.trim().slice(0, 200),
+        });
+      }
+    }
+  }
+
+  return {
+    ok: casing.length === 0 && mixedApi.length === 0,
+    casing,
+    mixedApi,
+    /** So "0 problems" is distinguishable from "no samples were examined". */
+    blocks: blocks.length,
+  };
+}
+
 module.exports = {
   IDENTIFIER_PATTERNS,
   PROSE_STOPLIST,
@@ -223,4 +377,9 @@ module.exports = {
   passageMentions,
   splitClaims,
   verifyAttribution,
+  RAW_IDENTIFIER_PATTERNS,
+  bareSpelling,
+  extractCodeBlocks,
+  buildCanonicalSpellings,
+  validateCodeSamples,
 };

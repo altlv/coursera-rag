@@ -13,7 +13,7 @@ const {
   HISTORY_EXCHANGES,
   REFUSAL,
 } = require('./rag');
-const { extractIdentifiers } = require('./answer-checks');
+const { extractIdentifiers, buildCanonicalSpellings } = require('./answer-checks');
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
 const { createHealthTracker } = require('./provider-health');
 const { createQuestionLog } = require('./question-log');
@@ -118,6 +118,21 @@ const UNGROUNDED_CHECK_ENABLED = false;
 /** Every code identifier appearing anywhere in the corpus. Cleared with the other caches. */
 let corpusIdentifiers = null;
 
+/*
+ * normalised name -> the single casing the corpus uses for it, for code-sample
+ * validation. Derived rather than curated: the docs already contain the correct
+ * spellings, so this needs no maintenance as Angular evolves - unlike the
+ * hand-written table in api-pairs.js. Names the corpus spells more than one way
+ * are omitted, since neither casing is authoritative.
+ */
+let canonicalSpellings = null;
+
+function getCanonicalSpellings(store) {
+  if (canonicalSpellings) return canonicalSpellings;
+  canonicalSpellings = buildCanonicalSpellings(store?.chunks ?? []);
+  return canonicalSpellings;
+}
+
 function getCorpusIdentifiers(store) {
   if (corpusIdentifiers) return corpusIdentifiers;
   corpusIdentifiers = new Set();
@@ -162,6 +177,7 @@ async function invalidateIfCorpusChanged() {
       docsPages = null;
       vectorStore = null;
       corpusIdentifiers = null;
+      canonicalSpellings = null;
       app.log.info('Corpus changed on disk - caches cleared, reloading on next request.');
     }
   } catch {
@@ -672,6 +688,7 @@ app.post('/api/chat', async (request, reply) => {
   let usage;
   let status;
   let attribution = null;
+  let codeSamples = null;
   let llmInfo = null;
 
   // A per-request override, so providers can be compared without a restart:
@@ -699,6 +716,7 @@ app.post('/api/chat', async (request, reply) => {
         provider: llm.provider,
         knownIdentifiers:
           UNGROUNDED_CHECK_ENABLED && vectorStore ? getCorpusIdentifiers(vectorStore) : null,
+        canonicalSpellings: vectorStore ? getCanonicalSpellings(vectorStore) : null,
       });
       status = generated.status;
       answer = generated.answer;
@@ -723,6 +741,16 @@ app.post('/api/chat', async (request, reply) => {
       }
       for (const claim of attribution?.unsupported ?? []) {
         app.log.warn(`Ungrounded API mention: "${claim.identifier}" is in no supplied passage`);
+      }
+
+      codeSamples = generated.codeSamples ?? null;
+      for (const issue of codeSamples?.casing ?? []) {
+        app.log.warn(`Miscased API in a code sample: "${issue.found}" should be "${issue.expected}"`);
+      }
+      for (const issue of codeSamples?.mixedApi ?? []) {
+        app.log.warn(
+          `Code sample mixes ${issue.old} with its replacement ${issue.replacement} in one snippet`,
+        );
       }
     } catch (error) {
       /*
@@ -765,7 +793,7 @@ app.post('/api/chat', async (request, reply) => {
    * Log the question. NOT awaited: logging must never add latency to an answer,
    * and its failures are already swallowed internally.
    */
-  const confidence = assessConfidence({ status, results, citations, attribution });
+  const confidence = assessConfidence({ status, results, citations, attribution, codeSamples });
 
   /*
    * Awaited only to obtain the event id, so the client can attach a rating to this
@@ -786,6 +814,8 @@ app.post('/api/chat', async (request, reply) => {
      */
     misattributed: attribution?.misattributed?.length || undefined,
     ungrounded: attribution?.unsupported?.length || undefined,
+    codeIssues:
+      (codeSamples?.casing?.length ?? 0) + (codeSamples?.mixedApi?.length ?? 0) || undefined,
     provider: llmInfo?.provider,
     model: llmInfo?.model,
     retrieved: results,
@@ -817,6 +847,11 @@ app.post('/api/chat', async (request, reply) => {
      * grounding rather than verify it.
      */
     attribution,
+    /*
+     * Reported, never corrected. Rewriting '@component' to '@Component' would hide
+     * that the model produced code it could not be trusted to get right.
+     */
+    codeSamples,
     sources,
     retrieved: results.map((result) => ({
       title: result.title,

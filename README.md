@@ -54,7 +54,12 @@ The third is the interesting one: it exercises the second line of defence. [Why 
 
 Each answer shows the model that wrote it, a confidence badge, a thumbs up/down, and a collapsible **"How this answer was built"** with every passage, its score, the rank each retrieval method gave it, and the token count.
 
-Citations are checked for **attribution**, not just range: if a sentence credits a passage that does not contain the API name it mentions, confidence is capped at `low` and the reason says so. That caught a real case — an `*ngIf` claim cited to a content-projection passage, none of whose passages mention `ngIf`. Checked on API names only, and deliberately built to under-report, because telling you a correct answer is badly sourced is worse than missing one that is. [How it works, and the companion check that measurement rejected →](LEARN-RAG.md#attribution-checking-the-citation-points-at-the-right-passage)
+Two checks run after the model writes:
+
+- **Citation attribution**, not just range — if a sentence credits a page that does not contain the API name it mentions, confidence is capped at `low`. That caught a real case: an `*ngIf` claim cited to a content-projection passage, none of whose passages mention `ngIf`. A wrong *passage* of the right *page* is reported more gently, because sources are surfaced per page so the reader still lands where the claim is.
+- **Code samples** — a miscased API name, or one sample mixing a legacy API with the function that supersedes it. Canonical casing is derived from the corpus rather than curated.
+
+Both report and never rewrite: correcting `@component` silently would hide that the model produced code it could not be trusted to get right. [How they work, and the companion check measurement rejected →](LEARN-RAG.md#attribution-checking-the-citation-points-at-the-right-passage)
 
 Questions are logged to `data/` (gitignored) so `npm run questions` can show what's actually being asked and which answers were rated unhelpful — the eval sets are 30 questions someone invented, and real usage is the only way to improve on that. Disable with `QUESTION_LOG=off`. [Why ratings outrank confidence →](LEARN-RAG.md#ratings-outrank-every-automatic-signal)
 

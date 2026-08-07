@@ -158,7 +158,28 @@ describe('verifyAttribution', () => {
       identifier: 'viewchild',
       cited: [1],
       actual: [3],
+      samePage: false,
     });
+  });
+
+  /*
+   * Severity depends on whether the cited PAGE is right. maxPerPage is 2, so [1] and
+   * [2] are frequently two paragraphs of one document - and measured on
+   * llama-3.3-70b, 3 of 4 misattributions were exactly that. Since the UI surfaces
+   * sources per page, a wrong-paragraph citation still sends the reader where the
+   * claim is. A wrong PAGE does not.
+   */
+  it('marks a wrong-passage-but-right-page citation as samePage', () => {
+    const twoPassagesOneOnePage = [
+      { id: 1, title: 'Queries', path: '/guide/components/queries', url: '', text: 'Queries find children.' },
+      { id: 2, title: 'Queries', path: '/guide/components/queries', url: '', text: 'The viewChild() query returns a signal.' },
+    ];
+    const result = verifyAttribution({
+      answer: 'Use viewChild() for that [1].',
+      chunks: twoPassagesOneOnePage,
+    });
+    expect(result.misattributed).toHaveLength(1);
+    expect(result.misattributed[0].samePage).toBe(true);
   });
 
   it('does not flag an identifier the cited passage genuinely contains', () => {

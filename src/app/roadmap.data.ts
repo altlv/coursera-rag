@@ -327,8 +327,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Validate generated code samples',
         detail:
-          'Nothing checks the code a model emits. Observed directly: given two conflicting passages it produced "@component" in lowercase and mixed the @Input() decorator with the input() function in a single sample. For a documentation assistant the code is frequently the whole answer, so shipping one that does not compile is worse than shipping prose that is merely vague. Type-checking or compiling extracted snippets would catch it.',
-        status: 'todo',
+          'Fenced code blocks are now checked for two defects seen during development: a miscased API name, and a single sample mixing a legacy API with the function that supersedes it. Canonical casing is DERIVED from the corpus rather than curated - the docs already contain the correct spellings - and measured, 1,908 of 2,033 names have exactly one casing. The 125 ambiguous ones are almost exactly the legacy/modern pairs (ViewChild vs viewChild, Input vs input), which casing cannot judge and the API-pair check covers instead, so the two are complementary by construction. Checked per block, since showing the old way then the new way in two samples is good teaching. Honest result: 71 samples across two providers produced zero findings, so this is a regression guard rather than a demonstrated win. It did however expose a real bug in api-pairs.js - replacementPattern matched only name( while the docs use the generic form heavily (output< appears 7 times against output( 4), so the prompt was urging the model to prefer an API the passage already showed. Still not done: nothing type-checks or compiles a snippet.',
+        status: 'done',
       },
       {
         title: 'Verify citation attribution, not just range',

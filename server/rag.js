@@ -1,6 +1,6 @@
 const { supersededApiNote } = require('./api-pairs');
 const { neutralisePassages, looksInjected } = require('./injection-guard');
-const { verifyAttribution } = require('./answer-checks');
+const { verifyAttribution, validateCodeSamples } = require('./answer-checks');
 
 /*
  * The RAG pipeline, as pure and testable functions.
@@ -847,6 +847,7 @@ async function generateAnswer({
   history = [],
   provider,
   knownIdentifiers = null,
+  canonicalSpellings = null,
 }) {
   if (!chunks || chunks.length === 0) {
     return {
@@ -906,6 +907,13 @@ async function generateAnswer({
    */
   const attribution = verifyAttribution({ answer, chunks, knownIdentifiers });
 
+  /*
+   * Code samples are checked but never corrected. Rewriting '@component' to
+   * '@Component' would hide that the model produced code it could not be trusted to
+   * get right, and the next defect might not be one we have a rule for.
+   */
+  const codeSamples = validateCodeSamples({ answer, canonical: canonicalSpellings });
+
   return {
     status: 'answered',
     answer: answer.trim(),
@@ -917,6 +925,7 @@ async function generateAnswer({
       misattributed: attribution.misattributed,
       unsupported: attribution.unsupported,
     },
+    codeSamples,
     refused: false,
     llmCalled: true,
   };
@@ -958,7 +967,13 @@ async function generateAnswer({
  * percentage: the inputs do not support that kind of precision, and a number
  * like "73% confident" invites trust it has not earned.
  */
-function assessConfidence({ status, results = [], citations = [], attribution = null }) {
+function assessConfidence({
+  status,
+  results = [],
+  citations = [],
+  attribution = null,
+  codeSamples = null,
+}) {
   const signals = {
     status,
     topScore: results[0]?.score ?? 0,
@@ -966,7 +981,14 @@ function assessConfidence({ status, results = [], citations = [], attribution = 
     distinctPages: new Set(results.map((r) => r.path)).size,
     citationCount: citations.length,
     misattributed: attribution?.misattributed?.length ?? 0,
+    /*
+     * Only cross-PAGE misattributions are serious. The top-k allows 2 passages per
+     * page, so a wrong-passage-right-page citation is common and cosmetic: sources
+     * are surfaced per page, so the reader still lands where the claim is.
+     */
+    misattributedPages: attribution?.misattributed?.filter((m) => !m.samePage).length ?? 0,
     unsupported: attribution?.unsupported?.length ?? 0,
+    codeIssues: (codeSamples?.casing?.length ?? 0) + (codeSamples?.mixedApi?.length ?? 0),
   };
 
   if (results.length > 1) {
@@ -1030,19 +1052,39 @@ function assessConfidence({ status, results = [], citations = [], attribution = 
    * An answer with four strong signals and a bad citation is not "slightly less
    * high"; it is not trustworthy in the way the badge implies.
    */
-  if (signals.misattributed > 0) {
+  if (signals.misattributedPages > 0) {
+    // Wrong PAGE: follow the citation and the claim is not there.
     level = 'low';
     reasons.push(
-      signals.misattributed === 1
-        ? 'One citation may point to the wrong passage'
-        : `${signals.misattributed} citations may point to the wrong passage`,
+      signals.misattributedPages === 1
+        ? 'One citation points to a page that does not mention it'
+        : `${signals.misattributedPages} citations point to pages that do not mention them`,
     );
+  } else if (signals.misattributed > 0) {
+    // Right page, wrong paragraph. Worth saying, not worth alarming over.
+    if (level === 'high') level = 'medium';
+    reasons.push('A citation names the right page but the wrong passage');
   } else if (signals.unsupported > 0) {
     // Weaker finding: a real API the supplied passages never mentioned. Suggests
     // the model drew on its own memory, which the grounding instruction forbids.
     if (level === 'high') level = 'medium';
     reasons.push(
       `Mentions ${signals.unsupported === 1 ? 'an API' : `${signals.unsupported} APIs`} not present in the cited passages`,
+    );
+  }
+
+  /*
+   * A defective code sample is independent of attribution, so it is checked
+   * separately rather than as an else-branch. For a documentation assistant the
+   * code is often the whole answer, so a sample that will not compile caps
+   * confidence in the same way a bad citation does.
+   */
+  if (signals.codeIssues > 0) {
+    level = 'low';
+    reasons.push(
+      signals.codeIssues === 1
+        ? 'A code sample looks wrong'
+        : `${signals.codeIssues} problems in the code samples`,
     );
   }
 

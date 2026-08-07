@@ -271,7 +271,25 @@ Two further decisions:
 - **Extraction is conservative, matching is liberal.** Only unmistakable code shapes become claims (`@Component`, `signal()`, `provideRouter`, `HttpClient`), while a passage writing "the Component decorator" still counts as containing `@Component`. Both settings push the same way: away from inventing findings.
 - **It reports; it never rewrites.** Silently moving a citation to whichever passage contains the word would manufacture the appearance of grounding rather than verify it. A finding caps confidence at `low` and is logged.
 
-**What it does not cover.** Prose-only claims, and it is thin: 27 answers produced only 19 identifier claims. Many answers are prose throughout, and those go unchecked entirely.
+**Not all misattributions matter equally.** `maxPerPage` is 2, so `[1]` and `[2]` are frequently two paragraphs of one document. Measured on `llama-3.3-70b`, **3 of 4 misattributions were exactly that** — wrong paragraph, right page. Since sources are surfaced per page, the reader still lands where the claim is. So severity splits:
+
+| Finding | Effect |
+| --- | --- |
+| Cited a different **page** | Follow the link and the claim is not there — caps confidence at `low` |
+| Cited the right page, wrong **passage** | Cosmetic — steps confidence down one level, and says so |
+
+Without that split the check would fire `low` constantly for a defect nobody can observe, which is the noise-drowns-signal failure it was designed to avoid.
+
+**The weakest model sets the rate**, exactly as with prompt injection:
+
+| Provider | Identifier claims | Misattributed |
+| --- | --- | --- |
+| `gpt-4o-mini` | 25 | 0 |
+| `meta-llama/llama-3.3-70b` | 109 | 4 (3.7%) |
+
+The weaker model wrote **four times as many API names** and got some of them wrong. Measuring only the default would have concluded the check was unnecessary.
+
+**What it does not cover.** Prose-only claims, and coverage is thin — 33 answers produced 25 identifier claims on `gpt-4o-mini`. Answers that are prose throughout go unchecked entirely.
 
 **Attribution defects are stochastic.** Re-running the `ng-container` question gave a correctly-cited answer — same passages, same prompt, different sampling. So a clean run is not evidence an answer is well-attributed, which is an argument for checking on every request rather than in a test.
 
@@ -292,6 +310,42 @@ Distinct-page count was the obvious repair, and it fails as well:
 **The rarest real APIs are rarer than the example names**, so no threshold separates them. Exactly the shape of [the paraphrase threshold](#the-threshold-that-could-not-exist) — a second instance of the same lesson, which is why it is worth recording twice: an intuitive proxy can be measured, and the measurement can say the idea is not merely mistuned but impossible.
 
 It is **off, not deleted** — the same treatment as MMR. The machinery is sound and a corpus without example names everywhere would benefit. The page counts are pinned in a test, so the idea is not quietly retried.
+
+### Checking the code the model writes
+
+For a documentation assistant the code is frequently the whole answer, so a sample that will not compile is worse than prose that is merely vague. Two defects were seen during development: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample.
+
+**Canonical casing is derived from the corpus, not curated.** The docs already contain the correct spellings, so a name the corpus only ever writes one way is checkable without a hand-maintained list — the explicit weakness of the [superseded-API table](#what-did-work-telling-the-model-the-fact). Measured: of **2,033** normalised names, **1,908 have exactly one casing**.
+
+The remaining 125 are the interesting part. They are almost exactly the legacy/modern pairs — `ViewChild` the decorator versus `viewChild()` the function, `Input` versus `input`. Casing cannot possibly judge those, so they are skipped, and the API-pair check covers precisely that blind spot. **The two checks are complementary by construction, not by luck.**
+
+Three scope decisions:
+
+- **Fenced code blocks only.** In prose "a component" is ordinary English. Checking casing there would flag nearly every answer.
+- **Per block, not per answer.** Showing the legacy form and then the modern one in two samples is good teaching. Only a mix *within* one sample is incoherent.
+- **The legacy form alone is not flagged.** That is a currency problem, already handled by the prompt note, and flagging it would punish an answer faithfully reflecting a page that documents only the old way.
+
+**The honest result: 71 code samples across two providers, zero findings.** The defect that motivated the check did not recur. That makes this a regression guard rather than a demonstrated win, and saying otherwise would be dressing up a null result — the observed rate is simply below what 71 samples can measure.
+
+### The bug the new check found in old code
+
+Writing the mixed-API test produced a failure I expected to be the test's fault. It was not.
+
+`api-pairs.js` decided whether a passage already showed the modern API using `/\binput\(/`. But these are **generic** functions, and the docs use the type-argument form heavily:
+
+| API | `name(` | `name<` |
+| --- | --- | --- |
+| `output` | 4 | **7** |
+| `viewChild` | 3 | **5** |
+| `input` | 26 | 22 |
+
+The generic form is often the *commoner* one, and the pattern matched none of it. So `detectSupersededApis` concluded the replacement was absent whenever a passage wrote `input<string>()`, and the prompt gained a note urging the model to prefer an API the passage was already demonstrating — defeating the `and not` clause that makes the note safe in the first place.
+
+**Two things worth taking from this.**
+
+This is the *third* appearance of the identical mistake in this project. It is already written up above as a lesson — about a **verification script** that searched for `output(` while the answer said `output<void>()`. I fixed the measurement and left the same flaw in the shipped pattern, because nothing was measuring the shipped pattern. **Fixing an instance of a bug is not the same as looking for its siblings.**
+
+And the existing test did not catch it because it joined the whole corpus into one string, so a single plain `input(` anywhere made every entry pass. Detection is **per passage** in production. A test that aggregates where the code discriminates is testing a different function than the one that ships.
 
 ### Contradictions: the guard's blind spot
 
@@ -517,7 +571,7 @@ The same reasoning drives provider handling. A key can be present and unusable �
 Kept deliberately, because a list of known gaps is more useful than a claim of completeness:
 
 - **Attribution is only checked on API names.** Narrowed, not closed. A misattributed *prose* claim still passes, and coverage is thin — 27 answers yielded 19 identifier claims, so answers that are prose throughout are unchecked. See [Attribution](#attribution-checking-the-citation-points-at-the-right-passage).
-- **Generated code is never validated.** Observed: `@component` in lowercase, and `@Input()` mixed with `input()` in one sample. For a documentation assistant the code is often the whole answer, so a sample that does not compile is worse than prose that is merely vague.
+- **Code validation is spelling, not compilation.** Casing and legacy/modern mixing are checked; nothing type-checks or compiles a sample, so a snippet with a real type error passes. And 71 samples produced zero findings, so it is a regression guard rather than a demonstrated win.
 - **Code samples split across chunks.** An 80-line example lands in two passages; chunking splits on blank lines and knows nothing about fenced code.
 - **Retrieval doesn't guarantee both sides of an API pair.** Mitigated by naming supersessions in the prompt, but retrieval itself still surfaces one side at a time.
 - **Lost in the middle.** Models attend least to the middle of a long context. Passages carry a rank now, but their *position* is still ignored.
@@ -542,6 +596,10 @@ The RAG-specific knowledge above is useful. These are the transferable parts —
 **Your metric may not measure the thing you are fixing.** I spent two attempts trying to make the assistant show both sides of an API pair, judged by hit@3 — which asks whether the correct page ranked, not whether both APIs appeared. Even a working fix would have scored neutral-or-worse. I needed a different measurement, not a different algorithm.
 
 **A failing measurement is a claim about two things.** My verification script reported the `output()` case as broken; the regex was looking for `output(` while the answer said `output<void>()`. The check was wrong, not the code. Before believing a red result, check the instrument.
+
+**Fixing a bug is not the same as looking for its siblings.** I wrote up the lesson that a regex searching for `output(` misses `output<void>()` — and left the identical flaw in the shipped `api-pairs.js` pattern for weeks, because the lesson was filed against the verification script where I met it. When you find a bug that comes from a *habit*, grep for the habit.
+
+**A test that aggregates where the code discriminates tests a different function.** The api-pairs test joined the whole corpus into one string, so one plain `input(` anywhere made every entry pass. Production checks passage by passage. The suite was green and the feature was broken.
 
 **Parse, don't pattern-match.** A regex told me three separate times that the corpus contained a live `javascript:` URL. It was escaped text inside a code block — only a DOM parse can tell the difference. I made the same mistake three times because a regex is quicker to write than it is to be right.
 

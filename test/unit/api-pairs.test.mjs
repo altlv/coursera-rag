@@ -151,4 +151,39 @@ describe('the list matches the corpus', () => {
     const absent = SUPERSEDED_APIS.filter((api) => !api.pattern.test(corpus));
     expect(absent.map((a) => a.old), 'a legacy API is listed that the corpus no longer mentions').toEqual([]);
   });
+
+  /*
+   * Regression. These are generic functions and the docs use the type-argument form
+   * heavily - measured, `output<` appears 7 times against `output(` 4, and
+   * `viewChild<` 5 against 3. The original patterns matched only `name(`, so a
+   * passage writing `input<string>()` was read as NOT containing the replacement,
+   * and the prompt gained a note urging an API the passage already demonstrated.
+   *
+   * The test above did not catch it because it joins the whole corpus: one plain
+   * `input(` anywhere made every entry pass. Detection is per-passage in
+   * production, so it has to be tested per-passage here.
+   */
+  it('detects a replacement written with generic type arguments', () => {
+    for (const api of SUPERSEDED_APIS) {
+      const name = api.replacement.replace('()', '').trim();
+      if (!/^[a-z][A-Za-z]*$/.test(name)) continue; // 'the host object' has no call form
+
+      expect(
+        api.replacementPattern.test(`readonly x = ${name}<string>();`),
+        `${api.replacement} is not detected when written as ${name}<string>()`,
+      ).toBe(true);
+      // The plain form must keep working.
+      expect(api.replacementPattern.test(`readonly x = ${name}();`)).toBe(true);
+    }
+  });
+
+  it('does not emit a note when the passage shows the replacement generically', () => {
+    // The end-to-end consequence of the bug above: both forms present, so the
+    // model already has what it needs and a note would repeat a caveat.
+    const chunks = [
+      { text: 'Legacy code uses @Input() for inputs.' },
+      { text: 'Prefer the signal form: readonly name = input<string>();' },
+    ];
+    expect(supersededApiNote(chunks)).toBeFalsy();
+  });
 });

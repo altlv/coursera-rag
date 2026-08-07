@@ -31,6 +31,22 @@
  * The alternative - inferring supersession from deprecation language in the text -
  * was rejected because the passages that mention @ViewChild mostly do not say it is
  * superseded. The corpus does not reliably state the thing we need.
+ *
+ * Why replacementPattern accepts `<` as well as `(`
+ * ------------------------------------------------
+ * These are generic functions, and the docs use the type-argument form heavily.
+ * Measured on the corpus: `output<` appears 7 times against `output(` 4, and
+ * `viewChild<` 5 against `viewChild(` 3 - the generic form is the COMMONER one.
+ *
+ * The original patterns only matched `name(`, so detectSupersededApis concluded the
+ * replacement was absent whenever a passage wrote `input<string>()`. The prompt then
+ * gained a note urging the model to prefer an API the passage was already
+ * demonstrating - defeating the `and not` clause that makes this note safe.
+ *
+ * This is the third time this exact mistake has appeared in this project. It was
+ * documented as a lesson about a VERIFICATION SCRIPT that searched for `output(`
+ * while the answer said `output<void>()`. The measurement got fixed; the identical
+ * flaw sat in the shipped pattern untouched, because nothing was measuring it.
  */
 
 const SUPERSEDED_APIS = [
@@ -38,35 +54,35 @@ const SUPERSEDED_APIS = [
     old: '@ViewChild',
     pattern: /@ViewChild\b/,
     replacement: 'viewChild()',
-    replacementPattern: /\bviewChild\(/,
+    replacementPattern: /\bviewChild[<(]/,
     note: 'the signal-based viewChild() query',
   },
   {
     old: '@ViewChildren',
     pattern: /@ViewChildren\b/,
     replacement: 'viewChildren()',
-    replacementPattern: /\bviewChildren\(/,
+    replacementPattern: /\bviewChildren[<(]/,
     note: 'the signal-based viewChildren() query',
   },
   {
     old: '@ContentChild',
     pattern: /@ContentChild\b/,
     replacement: 'contentChild()',
-    replacementPattern: /\bcontentChild\(/,
+    replacementPattern: /\bcontentChild[<(]/,
     note: 'the signal-based contentChild() query',
   },
   {
     old: '@Input()',
     pattern: /@Input\(/,
     replacement: 'input()',
-    replacementPattern: /\binput\(/,
+    replacementPattern: /\binput[<(]/,
     note: 'the signal-based input() function',
   },
   {
     old: '@Output()',
     pattern: /@Output\(/,
     replacement: 'output()',
-    replacementPattern: /\boutput\(/,
+    replacementPattern: /\boutput[<(]/,
     note: 'the output() function',
   },
   {

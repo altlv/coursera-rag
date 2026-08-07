@@ -1,8 +1,10 @@
 /*
- * Measure whether the attribution check catches anything real.
+ * Measure whether the post-answer checks catch anything real - attribution of
+ * citations, and defects in generated code samples.
  *
  *   npm run check-attribution              # default provider, both eval sets
  *   npm run check-attribution -- --all     # every configured provider
+ *   npm run check-attribution -- --code    # add questions that elicit code samples
  *   npm run check-attribution -- --only=openrouter
  *
  * This exists because a check that never fires is indistinguishable from a check
@@ -28,7 +30,7 @@ const {
   generateAnswer,
   assessConfidence,
 } = require('../server/rag');
-const { extractIdentifiers } = require('../server/answer-checks');
+const { extractIdentifiers, buildCanonicalSpellings } = require('../server/answer-checks');
 const { listAvailable, createLlm } = require('../server/llm-providers');
 
 dotenv.config();
@@ -44,6 +46,22 @@ const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
 const VERBOSE = args.includes('--verbose');
 /** Substring filter, so a single flagged question can be re-run for inspection. */
 const MATCH = (args.find((a) => a.startsWith('--question=')) || '').split('=')[1];
+const WITH_CODE = args.includes('--code');
+
+/*
+ * The eval sets are phrased to test retrieval, and most of their answers are prose -
+ * so they barely exercise the code-sample check. These ask for code explicitly.
+ * Not part of any eval set: they are here to provoke samples, not to measure
+ * retrieval, and adding them to the held-out set would corrupt it.
+ */
+const CODE_QUESTIONS = [
+  'show me a component that uses a signal input',
+  'write a component that queries a child element',
+  'show me how to declare a component with a selector and template',
+  'give me an example of a component that emits an event to its parent',
+  'show me a service that fetches data with HttpClient',
+  'write an effect that logs when a signal changes',
+];
 
 const line = (char = '-') => console.log(char.repeat(76));
 
@@ -99,11 +117,15 @@ async function run() {
     for (const id of extractIdentifiers(chunk.text)) knownIdentifiers.add(id);
   }
 
+  // Canonical casing, derived from the corpus rather than curated.
+  const canonicalSpellings = buildCanonicalSpellings(store.chunks);
+
   const { GOLDEN_SET } = await import('../test/golden-set.mjs');
   const { HOLDOUT_SET } = await import('../test/holdout-set.mjs');
-  const questions = [...GOLDEN_SET, ...HOLDOUT_SET]
-    .map((q) => q.question)
-    .filter((q) => !MATCH || q.toLowerCase().includes(MATCH.toLowerCase()));
+  const questions = [
+    ...[...GOLDEN_SET, ...HOLDOUT_SET].map((q) => q.question),
+    ...(WITH_CODE ? CODE_QUESTIONS : []),
+  ].filter((q) => !MATCH || q.toLowerCase().includes(MATCH.toLowerCase()));
 
   const providers = (ONLY ? [ONLY] : RUN_ALL ? listAvailable() : [undefined]).filter(
     (p) => p !== null,
@@ -112,7 +134,10 @@ async function run() {
   line('=');
   console.log('Attribution check - does it catch anything real?');
   line('=');
-  console.log(`Store      : ${store.chunkCount} passages, ${knownIdentifiers.size} identifiers`);
+  console.log(
+    `Store      : ${store.chunkCount} passages, ${knownIdentifiers.size} identifiers, ` +
+      `${canonicalSpellings.size} unambiguously cased`,
+  );
   console.log(`Questions  : ${questions.length} (golden + held-out)`);
   console.log(`Providers  : ${providers.map((p) => p || 'default').join(', ')}\n`);
 
@@ -127,9 +152,12 @@ async function run() {
 
     let checked = 0;
     let answers = 0;
+    let codeBlocks = 0;
     const misattributed = [];
     const unsupported = [];
     const downgraded = [];
+    const casing = [];
+    const mixedApi = [];
 
     for (const question of questions) {
       let results;
@@ -154,6 +182,7 @@ async function run() {
           chunks: results.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
           llm,
           knownIdentifiers,
+          canonicalSpellings,
         });
       } catch (error) {
         console.log(`  generation failed on "${question}": ${error.message}`);
@@ -178,12 +207,17 @@ async function run() {
         unsupported.push({ question, ...u });
       }
 
+      codeBlocks += generated.codeSamples?.blocks ?? 0;
+      for (const c of generated.codeSamples?.casing ?? []) casing.push({ question, ...c });
+      for (const m of generated.codeSamples?.mixedApi ?? []) mixedApi.push({ question, ...m });
+
       // Does the finding actually change what the user is told?
       const withCheck = assessConfidence({
         status: generated.status,
         results,
         citations: generated.citations,
         attribution: generated.attribution,
+        codeSamples: generated.codeSamples,
       });
       const without = assessConfidence({
         status: generated.status,
@@ -202,10 +236,16 @@ async function run() {
     console.log(`  identifier claims      : ${checked}`);
     console.log(`  misattributed          : ${misattributed.length}`);
     console.log(`  ungrounded (known API) : ${unsupported.length}`);
+    console.log(`  code samples examined  : ${codeBlocks}`);
+    console.log(`  miscased API names     : ${casing.length}`);
+    console.log(`  samples mixing old/new : ${mixedApi.length}`);
     console.log(`  confidence downgraded  : ${downgraded.length}`);
 
     if (checked === 0) {
       console.log('\n  Nothing was checked. That is a finding about the CHECK, not the answers.');
+    }
+    if (codeBlocks === 0) {
+      console.log('\n  No code samples appeared. Re-run with --code to provoke them.');
     }
 
     for (const m of misattributed) {
@@ -220,6 +260,18 @@ async function run() {
       console.log(`\n  UNGROUNDED  "${u.identifier}"  (cited [${u.cited.join('][')}])`);
       console.log(`    question : ${u.question}`);
       if (VERBOSE) console.log(`    sentence : ${u.sentence}`);
+    }
+
+    for (const c of casing) {
+      console.log(`\n  MISCASED  "${c.found}" should be "${c.expected}"`);
+      console.log(`    question : ${c.question}`);
+      if (VERBOSE) console.log(`    sample   : ${c.sample.split('\n')[0]}`);
+    }
+
+    for (const m of mixedApi) {
+      console.log(`\n  MIXED API  ${m.old} together with ${m.replacement} in one sample`);
+      console.log(`    question : ${m.question}`);
+      if (VERBOSE) console.log(`    sample   : ${m.sample.replace(/\n/g, ' | ')}`);
     }
 
     for (const d of downgraded) {

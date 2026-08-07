@@ -156,13 +156,34 @@ describe('assessConfidence', () => {
       expect(c.level).toBe('high');
     });
 
-    it('caps an otherwise-high answer at low when a citation is misattributed', () => {
+    it('caps an otherwise-high answer at low when a citation names the wrong page', () => {
       const c = assessConfidence({
         ...strong,
-        attribution: { misattributed: [{ identifier: 'viewchild' }], unsupported: [] },
+        attribution: {
+          misattributed: [{ identifier: 'viewchild', samePage: false }],
+          unsupported: [],
+        },
       });
       expect(c.level).toBe('low');
-      expect(c.reasons.join(' ')).toMatch(/wrong passage/i);
+      expect(c.reasons.join(' ')).toMatch(/does not mention it/i);
+    });
+
+    it('only steps down one level when the page is right but the passage is wrong', () => {
+      /*
+       * maxPerPage is 2, so [1] and [2] are often two paragraphs of one document.
+       * Sources are surfaced per page, so the reader still lands where the claim is.
+       * Treating this as severely as a wrong page would fire constantly for a
+       * cosmetic defect - measured, 3 of 4 real misattributions were this kind.
+       */
+      const c = assessConfidence({
+        ...strong,
+        attribution: {
+          misattributed: [{ identifier: 'viewchild', samePage: true }],
+          unsupported: [],
+        },
+      });
+      expect(c.level).toBe('medium');
+      expect(c.reasons.join(' ')).toMatch(/right page but the wrong passage/i);
     });
 
     it('only steps down one level for an ungrounded API mention', () => {
@@ -180,13 +201,39 @@ describe('assessConfidence', () => {
       const c = assessConfidence({
         ...strong,
         attribution: {
-          misattributed: [{ identifier: 'viewchild' }],
+          misattributed: [{ identifier: 'viewchild', samePage: false }],
           unsupported: [{ identifier: 'takeuntildestroyed' }],
         },
       });
       expect(c.level).toBe('low');
-      expect(c.reasons.join(' ')).toMatch(/wrong passage/i);
+      expect(c.reasons.join(' ')).toMatch(/does not mention it/i);
       expect(c.reasons.join(' ')).not.toMatch(/not present in the cited passages/i);
+    });
+
+    it('caps confidence when a code sample is defective', () => {
+      // For a documentation assistant the code is frequently the whole answer, so
+      // a sample that will not compile is as serious as a bad citation.
+      const c = assessConfidence({
+        ...strong,
+        codeSamples: { casing: [{ found: 'component', expected: 'Component' }], mixedApi: [] },
+      });
+      expect(c.level).toBe('low');
+      expect(c.reasons.join(' ')).toMatch(/code sample/i);
+    });
+
+    it('reports code problems and attribution problems independently', () => {
+      // Neither is a special case of the other, so both reasons must appear.
+      const c = assessConfidence({
+        ...strong,
+        attribution: {
+          misattributed: [{ identifier: 'viewchild', samePage: false }],
+          unsupported: [],
+        },
+        codeSamples: { casing: [], mixedApi: [{ old: '@Input()', replacement: 'input()' }] },
+      });
+      expect(c.level).toBe('low');
+      expect(c.reasons.join(' ')).toMatch(/does not mention it/i);
+      expect(c.reasons.join(' ')).toMatch(/code sample/i);
     });
 
     it('behaves exactly as before when no attribution is supplied', () => {
