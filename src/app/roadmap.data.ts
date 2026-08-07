@@ -312,7 +312,7 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Retrieve both sides of an old/new API pair',
         detail:
-          'Conflict surfacing is a generation defence resting on a retrieval assumption: the prompt cannot flag a conflict it was never shown. Measured on the real corpus - "how do I listen to an event on the host element?" retrieved both @HostListener and the host object and correctly recommended one while noting the other, but "how do I get a reference to a child component?" taught @ViewChild and never mentioned viewChild(), because the signal-query passage never reached the top-k. So the assistant will still sometimes present a legacy API as the only option. Needs retrieval-side work: recognising API-pair questions, or reranking for diversity of APPROACH rather than just diversity of page.',
+          'Diagnosed, and two candidate fixes rejected by measurement. MMR reranking for diversity made hit@3 WORSE at every lambda (93% to 80-87%) because it displaced the correct page, and raising maxPerPage was worse too - 2 was already optimal. The real cause is passage-level imbalance inside one page: /guide/components/queries has 15 passages, 5 mentioning @ViewChild and exactly 1 mentioning viewChild(), so with two slots per page the modern API rarely wins. No page-level algorithm can reach that. Also note hit@3 cannot measure this at all - it asks whether the right page ranked, not whether both APIs were shown - so a direct API-pair coverage metric was needed, currently 1 of 4. Honest fix is corpus-level metadata marking superseded APIs. MMR is kept, defaulted off, since it may help a corpus with genuine redundancy.',
         status: 'todo',
       },
       {

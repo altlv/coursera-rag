@@ -156,6 +156,37 @@ Keyword scoring here only reranks passages that already cleared the floor, rathe
 
 At most 2 passages per page. Without it the top-k collapses onto one well-matched page — *"What does CSS stand for?"* spent 2 of 5 slots on duplicates, so 40% of the context window carried material the model had already seen. Adjacent passages also overlap by 150 characters *by design*.
 
+### Two fixes that measurement rejected
+
+Worth recording, because the failures taught more than the successes.
+
+**The problem.** Asked *"how do I get a reference to a child component?"*, the assistant taught `@ViewChild` and never mentioned `viewChild()`. A user marked it unhelpful. The obvious diagnosis was "the top-k lacks diversity".
+
+**Attempt 1: Maximal Marginal Relevance.** Instead of top-k by score, pick greedily to maximise `λ·relevance − (1−λ)·max_similarity_to_already_selected`, so a passage is penalised for resembling what has been chosen. A standard, principled technique.
+
+It worked exactly as advertised and made retrieval **worse**:
+
+| λ | hit@3 | Distinct pages |
+| --- | --- | --- |
+| baseline (top-k) | **93%** | 3.73 |
+| 0.9 | 87% | 4.67 |
+| 0.7 | 80% | 4.67 |
+
+Diversity rose; the *correct* page got displaced. One question lost its answer entirely.
+
+**Attempt 2: allow more passages per page.** Also worse — 93% → 87% at every value tried. `maxPerPage: 2` was already optimal.
+
+**The actual cause, found by looking instead of theorising.** `/guide/components/queries` contains **15 passages: 5 mention `@ViewChild`, exactly 1 mentions `viewChild()`**. With two slots per page, the odds of that single modern-API passage winning are poor. This is **passage-level imbalance inside one page** — no page-level diversity algorithm can reach it, which is precisely why both attempts failed.
+
+**Two lessons, and the second is the bigger one:**
+
+1. A principled technique can be wrong for your data. MMR assumes redundancy is the problem; here the problem was scarcity of one viewpoint.
+2. **hit@3 cannot measure what I was trying to fix.** It asks "is the correct page in the top 3", not "were both competing APIs shown". So even a *working* diversity fix would have scored neutral-or-worse. I reached for a different algorithm when I needed a different metric — and only building the direct measurement (API-pair coverage: 1 of 4 questions retrieved both sides) made that visible.
+
+A useful reframing came out of that measurement too: of the four API-pair questions, two retrieved **only the new API**, which is arguably *correct* — teach the current way. Only the `@ViewChild` case retrieved only the *legacy* API. So the defect is narrower than it first appeared, and the honest fix is corpus-level metadata marking superseded APIs, not a cleverer ranker.
+
+MMR is kept in the code, defaulted off, because it may well help a corpus with genuine redundancy. `npm run eval -- --mmr=0.7` re-runs the comparison.
+
 ### Searching two versions of the question
 
 Query rewriting (see [Working memory](#working-memory)) turns a follow-up into a standalone question. It is a large improvement — and **not reliably better**:

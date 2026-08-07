@@ -203,6 +203,69 @@ function selectChunks(queryVector, store, { k = 5, floor = 0.25, maxPerPage = 2 
 }
 
 /**
+ * Maximal Marginal Relevance: pick passages that are relevant AND unlike each other.
+ *
+ * The problem it solves, observed here twice: asked "how do I get a reference to a
+ * child component?", retrieval returned five passages that all described the same
+ * approach, and the answer taught @ViewChild while never mentioning viewChild().
+ * The passage covering the newer API existed in the corpus but never reached the
+ * top-k, so the prompt could not present both - and a user marked the answer
+ * unhelpful for exactly that reason.
+ *
+ * Top-k by score has no notion of redundancy. Five passages saying nearly the same
+ * thing score five times, crowding out the one that says something different. The
+ * per-page cap only helps when the duplication happens to span pages; here the
+ * competing APIs are documented on different pages AND the near-duplicates were too.
+ *
+ * MMR picks greedily, at each step maximising
+ *
+ *     lambda * relevance(c) - (1 - lambda) * max similarity(c, already selected)
+ *
+ * so a passage is penalised for resembling what has already been chosen. lambda = 1
+ * is plain top-k; lower values trade relevance for coverage.
+ *
+ * Passage vectors are already unit length, so similarity between them is a dot
+ * product - a few thousand multiply-adds for a whole selection.
+ */
+function selectMMR(candidates, { k, lambda = 0.7, store }) {
+  if (candidates.length === 0) return [];
+  if (lambda >= 1 || !store) return candidates.slice(0, k);
+
+  const dims = store.dimensions;
+  const vectorOf = (c) => store.vectors.subarray(c.index * dims, (c.index + 1) * dims);
+
+  const selected = [candidates[0]];
+  const remaining = candidates.slice(1);
+
+  while (selected.length < k && remaining.length > 0) {
+    let bestAt = 0;
+    let bestScore = -Infinity;
+
+    for (let i = 0; i < remaining.length; i += 1) {
+      const candidate = remaining[i];
+      const vector = vectorOf(candidate);
+
+      let maxSimilarity = 0;
+      for (const chosen of selected) {
+        const similarity = dotProduct(vector, vectorOf(chosen));
+        if (similarity > maxSimilarity) maxSimilarity = similarity;
+      }
+
+      const score = lambda * candidate.relevance - (1 - lambda) * maxSimilarity;
+      if (score > bestScore) {
+        bestScore = score;
+        bestAt = i;
+      }
+    }
+
+    selected.push(remaining[bestAt]);
+    remaining.splice(bestAt, 1);
+  }
+
+  return selected;
+}
+
+/**
  * Take the best `k`, allowing at most `maxPerPage` chunks from any one page.
  *
  * Without this the top-k collapses onto whichever page happens to match well.
@@ -391,7 +454,7 @@ function selectChunksHybrid(queryVector, query, store, options = {}) {
  * for AT LEAST ONE formulation, and reports its best similarity across them.
  */
 function selectChunksMultiQuery(queries, store, options = {}) {
-  const { k = 5, floor = 0.25, maxPerPage = 2, rrfK = 60 } = options;
+  const { k = 5, floor = 0.25, maxPerPage = 2, rrfK = 60, mmrLambda = 1 } = options;
 
   if (!store || !store.chunks || store.chunks.length === 0) return [];
   if (!queries || queries.length === 0) return [];
@@ -437,7 +500,20 @@ function selectChunksMultiQuery(queries, store, options = {}) {
 
   const fused = fuseRankings(rankings, { rrfK });
 
-  const results = fused.map((entry) => ({
+  /*
+   * Diversify BEFORE truncating to k, so MMR has candidates to choose between.
+   * Applying it afterwards would be pointless - the redundancy has already won the
+   * slots by then. Over-fetch a few times k to give it room.
+   */
+  const diversified =
+    mmrLambda < 1
+      ? selectMMR(
+          fused.slice(0, k * 4).map((entry) => ({ ...entry, relevance: entry.score })),
+          { k: k * 2, lambda: mmrLambda, store },
+        )
+      : fused;
+
+  const results = diversified.map((entry) => ({
     ...store.chunks[entry.index],
     // `score` stays a cosine similarity so the floor, the golden set and every
     // threshold keep meaning the same thing. Fusion score is separate.
@@ -882,6 +958,7 @@ module.exports = {
   fuseRankings,
   selectChunksHybrid,
   selectChunksMultiQuery,
+  selectMMR,
   assessConfidence,
   needsRewrite,
   buildRewritePrompt,

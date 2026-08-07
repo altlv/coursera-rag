@@ -34,6 +34,15 @@ const MAX_PER_PAGE = 2;
 
 const args = process.argv.slice(2);
 const COMPARE_DIR = (args.find((a) => a.startsWith('--compare=')) || '').split('=')[1];
+/*
+ * Compare retrieval CONFIGS against the same store, not just two stores.
+ *
+ *   --mmr=0.7   score plain top-k against MMR at lambda 0.7
+ *
+ * A config change cannot be evaluated by swapping stores, and "it should improve
+ * diversity" is not evidence. This is how MMR gets judged.
+ */
+const MMR_LAMBDA = Number((args.find((a) => a.startsWith('--mmr=')) || '').split('=')[1] || 0) || 0;
 const HOLDOUT_ONLY = args.includes('--holdout');
 const GOLDEN_ONLY = args.includes('--golden');
 
@@ -107,13 +116,13 @@ async function loadQuestionVectors(fixturePath, questions, store) {
   return cached;
 }
 
-/** hit@1, hit@3 and MRR for one set against one store. */
-function score(questions, vectors, store) {
+/** hit@1, hit@3 and MRR for one set against one store, under one retrieval config. */
+function score(questions, vectors, store, config = {}) {
   const rows = questions.map((item) => {
     const results = selectChunksMultiQuery(
       [{ vector: vectors.get(item.question), text: item.question, label: '' }],
       store,
-      { k: TOP_K, floor: SCORE_FLOOR, maxPerPage: MAX_PER_PAGE },
+      { k: TOP_K, floor: SCORE_FLOOR, maxPerPage: MAX_PER_PAGE, ...config },
     );
 
     let rank = 0;
@@ -129,6 +138,8 @@ function score(questions, vectors, store) {
       rank,
       top: results[0]?.score ?? 0,
       topPath: results[0]?.path ?? '(nothing)',
+      /** How many distinct pages the top-k covered - the thing MMR is meant to raise. */
+      distinctPages: new Set(results.map((r) => r.path)).size,
     };
   });
 
@@ -138,6 +149,7 @@ function score(questions, vectors, store) {
     hit1: rows.filter((r) => r.rank === 1).length / n,
     hit3: rows.filter((r) => r.rank > 0 && r.rank <= 3).length / n,
     mrr: rows.reduce((s, r) => s + (r.rank ? 1 / r.rank : 0), 0) / n,
+    avgPages: rows.reduce((s, r) => s + r.distinctPages, 0) / n,
   };
 }
 
@@ -166,6 +178,9 @@ function compare(label, before, after) {
   console.log(`    hit@1  ${pct(before.hit1)} -> ${pct(after.hit1)}   ${delta(before.hit1, after.hit1)}`);
   console.log(`    hit@3  ${pct(before.hit3)} -> ${pct(after.hit3)}   ${delta(before.hit3, after.hit3)}`);
   console.log(`    MRR    ${before.mrr.toFixed(3)} -> ${after.mrr.toFixed(3)}   ${(after.mrr - before.mrr >= 0 ? '+' : '') + (after.mrr - before.mrr).toFixed(3)}`);
+  console.log(
+    `    pages  ${before.avgPages.toFixed(2)} -> ${after.avgPages.toFixed(2)}   distinct pages per answer`,
+  );
 
   const changed = after.rows
     .map((row, i) => ({ q: row.question, from: before.rows[i].rank, to: row.rank }))
@@ -208,7 +223,13 @@ async function run() {
   for (const set of sets) {
     const vectors = await loadQuestionVectors(set.fixture, set.questions, current);
 
-    if (other) {
+    if (MMR_LAMBDA > 0) {
+      compare(
+        `${set.name}  [top-k -> MMR lambda ${MMR_LAMBDA}]`,
+        score(set.questions, vectors, current),
+        score(set.questions, vectors, current, { mmrLambda: MMR_LAMBDA }),
+      );
+    } else if (other) {
       compare(set.name, score(set.questions, vectors, other), score(set.questions, vectors, current));
     } else {
       report(set.name, score(set.questions, vectors, current));
