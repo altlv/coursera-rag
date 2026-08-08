@@ -428,8 +428,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Measure answer quality, not just retrieval',
         detail:
-          'Retrieval is measured thoroughly and generation barely. Nothing scores whether an answer is faithful to the passages it cites - only that the citation numbers are in range. Faithfulness and groundedness checks would cover the half currently taken on trust.',
-        status: 'todo',
+          'npm run eval:answers scores four things no retrieval metric can see: status accuracy (did it answer, refuse or hedge correctly), must-mention recall against a hand-written rubric per question, citation coverage, and refusal purity. Producing an answer is stochastic so this is a script, not a gate; SCORING one is deterministic, so server/answer-quality.js is pure and unit-tested. Deliberately not an LLM judge - that would make the measurement itself stochastic and provider-dependent, and a change in the judge would be indistinguishable from a change in the system. Three corrections came out of the first run, none of them the model: the score blamed generation for retrieval misses (hedging after a miss is CORRECT, so scoring is now conditioned on whether retrieval delivered), one rubric required signal() when the corpus uses signal(0) twelve times against signal() twice, and one required withHttpTransferCache which does not match withHttpTransferCacheOptions under whole-word matching. Results: gpt-4o-mini 100% status and 100% must-mention - saturated, so useless for detecting change - against llama-3.3-70b at 97% and 80%, where the metric actually discriminates. Answers are stochastic, so repeats are averaged and "always fails" is separated from "unstable": one question failed its rubric on one run and passed on the next. What it does NOT measure is whether the prose is clear or well-ordered - it catches wrong and incomplete, not ugly.',
+        status: 'done',
       },
       {
         title: 'Continuous integration',

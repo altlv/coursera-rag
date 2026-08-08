@@ -467,6 +467,58 @@ A **held-out set** of 15 questions, never used for tuning, targeting details in 
 
 Two rules that keep it honest: thresholds sit *below* current performance, so they are regression guards rather than targets; and a test asserts the held-out set is still *harder* than the golden one, so it cannot be quietly made easier to go green.
 
+### Measuring the answer, not the retrieval
+
+Everything above stops at *"did the right page rank"*. Generation was only ever tested by contract — statuses, citation handling, prompt structure, against a fake model. **Nothing scored whether the prose was any good**, which is exactly why a single thumbs-down found a defect every automatic signal had rated `answered` with high confidence.
+
+**Producing an answer is stochastic; scoring one is not.** That split is what makes this tractable. Generation stays in a script that costs money, and the scoring functions are pure, unit-tested and free.
+
+Four metrics, in descending order of what they tell you:
+
+| Metric | Question it answers |
+| --- | --- |
+| **Status accuracy** | Did it answer / refuse / hedge as it should? |
+| **Must-mention** | Does the answer name the API it has to name? |
+| **Citation coverage** | Does an answered answer cite anything at all? |
+| **Refusal purity** | Does a refusal invent citations? |
+
+**Deliberately not an LLM judge.** That would make the measurement itself stochastic and provider-dependent, so a change in the judge would be indistinguishable from a change in the system — the failure this project has already met three times. A hand-written rubric is weaker in coverage and far stronger in interpretability: when the number moves, you know why.
+
+### Three things the first run got wrong — none of them the model
+
+**1. The metric blamed generation for retrieval's failure.** The first run marked *"how do I attach a directive without putting it in the template?"* as failing: expected `answered`, got `partial`. But that is the one question retrieval misses — the passages genuinely did not contain the answer, so hedging was **correct and honest**. Scoring is now conditioned on whether retrieval actually delivered: when it missed, refusing is right, answering anyway is the defect, and the content rubric is not scored at all.
+
+⚙️ This is the deterministic/stochastic split again, one level up. Measure them together and you punish one half for the other's mistakes.
+
+**2. A rubric written from memory instead of from the corpus.** It required `signal()`; a correct answer wrote `signal(0)`. The documents agree with the model — `signal()` with empty parentheses appears **twice** in the corpus, `signal(0)` and `signal(false)` **twelve times each**.
+
+**3. A rubric that a prefix could not satisfy.** It required `withHttpTransferCache`, which does not match `withHttpTransferCacheOptions` under whole-word matching. The answer named the real API and was scored as a failure. It also assumed the answer would come from the *acceptable pages*, but `/best-practices/performance/ssr` outranked them and uses different vocabulary.
+
+Both are the same lesson as the `output(` regex: **a failing measurement is a claim about two things.** The rubric test now checks not only that a required term exists in the corpus, but that it is not *rare* — because `signal()` existed and was still a bad bet.
+
+### What it found once the instrument was right
+
+| Provider | Status accuracy | Must-mention |
+| --- | --- | --- |
+| `gpt-4o-mini` | 100% | **100%** (28/28) |
+| `meta-llama/llama-3.3-70b` | 97% | **80%** (45/56) |
+
+The strong model is **saturated at 100%** — that metric cannot detect a change in either direction, exactly as the golden set could not. The weaker model is where it discriminates, which is the third time in this project that [the weakest supported configuration](#prompt-injection-and-why-the-model-handled-it-is-not-a-defence) turned out to be the one worth measuring.
+
+**Answers are stochastic, so one pass is a noisy estimate.** *"What are reactive forms?"* failed its rubric on one run and passed on the next — same question, same passages. So the script averages repeats and separates the two populations:
+
+```
+over 2 runs: 5 always fail, 1 unstable
+  unstable  1/2  what are reactive forms?
+  always    0/2  what are signals?
+  always    0/2  what is a structural directive?
+  ...
+```
+
+⚙️ A question failing *every* run is a real gap. One failing half the time is variance. Treating them the same is how a noisy metric gets over-read — and reporting a single unlucky pass as a regression is a mistake this instrument now makes hard.
+
+**What it does not measure:** whether the prose is clear, well-ordered or pleasant. It catches *wrong* and *incomplete*, not *ugly*. And it is only as good as the rubric someone wrote.
+
 ---
 
 ## Logging what people actually ask

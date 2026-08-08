@@ -88,6 +88,7 @@ Questions are logged to `data/` (gitignored) so `npm run questions` can show wha
 | `npm run list-models` | Ask each provider what models it offers | free |
 | `npm run compare-providers` | Same passages, different writers | ~$0.01 |
 | `npm run check-attribution` | Do cited passages contain the APIs credited to them? | ~$0.02 |
+| `npm run eval:answers` | Score the answers: status, must-mention, citations; `--runs=N` averages | ~$0.02 |
 | `npm run questions` | What was asked, and which answers were rated unhelpful | free |
 
 ## Switching the model

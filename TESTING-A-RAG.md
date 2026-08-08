@@ -301,6 +301,116 @@ upgrade for no reason and teaches you to stop trusting the suite.
 
 ---
 
+## Scoring the answer, not just the retrieval
+
+Everything so far measures whether the right page ranked. That leaves the larger
+half unmeasured — and "the retrieval was fine" is cold comfort when the answer was
+wrong.
+
+⚙️ **The split that makes this tractable: producing an answer is stochastic, but
+scoring one is not.** Keep generation in a script that costs money, and make the
+scoring functions pure, free and unit-tested.
+
+### Four metrics that need no judge
+
+| Metric | Question | Why it earns its place |
+| --- | --- | --- |
+| **Status accuracy** | Did it answer / refuse / hedge as it should? | The only one that catches confident nonsense. No retrieval metric can see it. |
+| **Must-mention** | Does the answer name the thing it must name? | Objective, and diagnosable when it moves. |
+| **Citation coverage** | Does an answered answer cite anything? | Cheap; catches unsupported prose. |
+| **Refusal purity** | Does a refusal invent citations? | Must be 100%. Anything else is fabrication. |
+
+Status accuracy comes free if your eval set already labels each question's expected
+outcome — a question marked "must retrieve nothing" **is** a question marked "must
+refuse".
+
+### Why not an LLM judge
+
+⚙️ Because it makes the measurement itself stochastic and provider-dependent. A
+change in the judge then looks exactly like a change in the system, which is the
+failure mode this whole document is organised against. A hand-written rubric has
+worse coverage and far better interpretability: when the number moves, you know
+which requirement moved it.
+
+Use a judge if you must, but treat its output as a candidate finding to be
+confirmed, not as a measurement.
+
+### Writing rubrics that measure the system rather than your memory
+
+A rubric is a list of things a correct answer must say. 📐 Both of the first run's
+"failures" turned out to be the rubric's fault, not the model's:
+
+| Required | Answer said | Why it failed |
+| --- | --- | --- |
+| `signal()` | `signal(0)` | Written from memory. The corpus uses `signal()` **twice** and `signal(0)` **twelve times**. |
+| `withHttpTransferCache` | `withHttpTransferCacheOptions` | Whole-word matching; a prefix does not count. |
+
+Four rules that follow:
+
+1. **Write requirements from the corpus, not from memory.** Grep for the term first
+   and look at how the documents actually spell it.
+2. **Allow alternatives.** A requirement is a *group* — `['@for', 'ngFor']` — because
+   a correct answer may legitimately use either, exactly as retrieval asserts a set
+   of acceptable pages rather than one exact page.
+3. **Test that every required term exists in the corpus.** A term the documents never
+   use cannot be satisfied by a grounded system, so the metric would be punishing
+   the model for refusing to hallucinate.
+4. **Test that it is not *rare*, either.** Existence is not enough — `signal()`
+   existed and was still a bad bet. Warn below a handful of occurrences.
+
+```python
+def test_rubrics_require_nothing_the_corpus_never_says():
+    for question, groups in RUBRICS.items():
+        for group in groups:
+            assert any(mentions(corpus, term) for term in group), \
+                f"{question}: no document says any of {group}"
+```
+
+### Condition the score on what retrieval delivered
+
+📐 The single most important correction in the first run. A question was marked
+failing — expected `answered`, got `partial` — on the one question retrieval misses.
+The passages genuinely did not contain the answer, so hedging was **correct**.
+
+⚙️ When retrieval missed, the standard inverts:
+
+| Retrieval | Correct behaviour | Score the content rubric? |
+| --- | --- | --- |
+| Found an acceptable page | Answer it | Yes |
+| Missed | Hedge or refuse | **No** — nothing supplied could satisfy it |
+
+Answering anyway after a retrieval miss is the real defect, and it is the one worth
+catching. Without this conditioning you punish generation for retrieval's mistakes,
+which is the conflation this document opens by warning about.
+
+### Average repeats, and separate variance from real gaps
+
+⚙️ Answers are stochastic, so one pass is a noisy estimate. 📐 The same question
+failed its rubric on one run and passed on the next — identical passages, identical
+prompt.
+
+So run each question N times and split the results into two populations:
+
+```
+over 2 runs: 5 always fail, 1 unstable
+  unstable  1/2  what are reactive forms?
+  always    0/2  what are signals?
+```
+
+**A question failing every run is a real gap. One failing half the time is
+variance.** Treating them the same is how a noisy metric gets over-read — and how a
+single unlucky pass gets reported as a regression.
+
+### Expect this metric to saturate too
+
+📐 `gpt-4o-mini` scored 100% on every metric. That is the golden-set problem again:
+a metric at 100% cannot detect change in either direction. The weaker supported
+model scored 80% on must-mention, and that is where the number is useful.
+
+⚙️ **If your answer scores are perfect, you have not proven the system is good — you
+have proven the rubric is easy, or the model is stronger than your test.** Add
+harder questions, or measure the weakest configuration you permit.
+
 ## Adversarial testing
 
 ### Test the weakest configuration you support, not the default
@@ -636,6 +746,13 @@ Before you believe your RAG works:
 - [ ] Passages delimited, and declared as data in the system prompt
 - [ ] Injection tested against the **weakest** model you support
 - [ ] No test asserts the wording of an answer
+
+**Answer quality**
+- [ ] Status accuracy measured - answer / refuse / hedge, per question
+- [ ] A must-mention rubric per answerable question, written from the corpus
+- [ ] Every required term tested to exist in the corpus, and not be rare
+- [ ] Scoring conditioned on whether retrieval actually delivered
+- [ ] Repeats averaged, with "always fails" separated from "unstable"
 
 **Instrumentation**
 - [ ] Every check reports how much it examined, not only what it found
