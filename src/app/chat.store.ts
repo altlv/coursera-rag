@@ -249,7 +249,17 @@ export class ChatStore {
       let text =
         chatError?.message || 'Failed to reach the backend. Is it running on port 3000?';
 
-      if (chatError?.errorKind === 'rate-limit') {
+      if (chatError?.errorKind === 'too-many-requests') {
+        /*
+         * OUR limit, not the provider's. Suggesting another provider here would be
+         * wrong - every provider goes through the same endpoint, so switching
+         * changes nothing.
+         */
+        text += ' This is a limit on this server, so switching model will not help.';
+      } else if (chatError?.errorKind === 'spend-limit') {
+        // Nothing the user can do, and retrying is pointless until it resets.
+        text += ' Raise DAILY_SPEND_USD in .env and restart if this was not intended.';
+      } else if (chatError?.errorKind === 'rate-limit') {
         text += this.canSwitchProvider()
           ? ' You can pick another provider above, or wait a moment and retry.'
           : ' Wait a moment and try again.';

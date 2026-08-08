@@ -631,6 +631,37 @@ Two things worth stealing from this:
 
 **A display-only fix can be invisible to your update mechanism.** Sanitisation changed `contentHtml` but not `contentText`, and page hashes cover `contentText` only — so `docs:update` reported **0 changes** and would never have shipped the fix. It needed a full `download-docs`. The upside of that same design: retrieval was untouched (hit@3 93%, MRR 0.822 unchanged) and **no re-embedding was required**.
 
+### Bounding cost: two controls, because they bound different things
+
+Until this existed, anyone who could reach `/api/chat` could spend the account balance in a loop.
+
+⚙️ **A rate limit is not a budget.** It bounds how *fast* the balance can be spent; twenty questions a minute all day is still a large bill. The two controls are independent and both are needed.
+
+**Rate limiting — a token bucket, not a fixed window.** A fixed window lets a caller fire the whole allowance at 59.9s and again at 60.1s: twice the intended rate, at exactly the moment someone is hammering it. A bucket refills continuously, so the average rate is what you configured while a short burst is still allowed — which matters because a person asking three questions quickly is normal use, not abuse.
+
+Two decisions worth stating:
+
+- **An unidentifiable caller is one shared bucket, not an exemption.** Failing open there would make the limiter bypassable by whatever made the address unavailable.
+- **Idle buckets are swept.** One entry per address is a slow leak on a public endpoint, and a bucket that has been full longer than it takes to refill carries no information.
+
+**The spend ceiling — tokens are the ledger, dollars are a view.** Token counts come back from the provider and are exact; prices are external, drift without notice, and differ per provider. So usage is recorded in tokens and converted for the ceiling, which means a wrong price can be corrected later from data that is still right.
+
+The decisive design choice: **an unknown model is priced at the most expensive known rate, not at zero.** Pricing an unrecognised model at zero would mean that adding a provider silently switches the ceiling off — failing open, quietly, exactly when something changed. Local models (`ollama`, `lmstudio`) are the one exception, priced at zero because they cost nothing per token.
+
+Three more, each a consequence of taking failure seriously:
+
+- **Checked before the call, not after.** Enforcing afterwards means the request that breached the ceiling has already been paid for.
+- **Persisted, write-then-rename.** Without persistence the ceiling is bypassable by restarting, and a crash loop would reset the budget continuously. Verified: after a restart the ledger reloaded and the next request was refused with `402`.
+- **A ledger that cannot be read must not break the chatbot.** It degrades to per-process accounting rather than disappearing — the same rule the question log follows.
+
+**Both are reported on `/api/providers` before they fire.** A budget you only learn about by hitting it is worse than no budget, and an estimate nobody can see is one nobody can check against the real invoice.
+
+**Verified live, not just in tests.** With `burst=2`: two requests answered, the next three returned `429` with `retryAfterMs`, and a later one succeeded once the bucket refilled. With the ceiling already exceeded: `402`, `errorKind: spend-limit`.
+
+⚙️ One thing worth copying: `429` and `402` are deliberately different. *Slow down* and *the budget is gone* call for different client behaviour — one should retry, the other must not — and the UI says so, including that switching model will not help because every provider goes through the same endpoint.
+
+**The honest limit:** the price table is a static estimate that will go stale, so the dollar figure is approximate. The token counts underneath it are exact.
+
 ## Silent failures
 
 The failures worth engineering against are the ones that return plausible output while being wrong. Embedding-space mismatch is guarded six ways:

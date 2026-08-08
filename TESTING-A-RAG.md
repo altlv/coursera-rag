@@ -459,6 +459,82 @@ guard was built to protect.
 
 ---
 
+## Testing the cost controls
+
+Rate limits and spend ceilings are time- and money-based, which tempts people into
+testing them with real sleeps and real spending. Both are avoidable.
+
+### Inject the clock
+
+⚙️ A time-based test built on real delays is slow and flaky, and flaky tests get
+deleted. Pass `now` in.
+
+```python
+def test_bucket_refills_rather_than_resetting_on_a_boundary():
+    clock = [0]
+    limiter = RateLimiter(per_minute=60, burst=2, now=lambda: clock[0])
+    assert limiter.check("a").allowed
+    assert limiter.check("a").allowed
+    assert not limiter.check("a").allowed
+
+    clock[0] = 1000                      # 60/min = one token per second
+    assert limiter.check("a").allowed    # one slot back, not the whole allowance
+    assert not limiter.check("a").allowed
+```
+
+That test also encodes *why* a token bucket beats a fixed window: a fixed window
+would return the entire allowance at the tick, letting a caller sustain twice the
+configured rate across the boundary.
+
+### The cases that are easy to forget
+
+| Test | Why it matters |
+| --- | --- |
+| Unidentifiable caller | Must be one shared bucket, **not** an exemption — otherwise the limiter is bypassable by whatever hid the address |
+| Never refills past the burst | An idle caller must not accumulate an unbounded allowance |
+| Idle buckets are swept | One entry per address is a slow memory leak on a public endpoint |
+| Ceiling checked **before** the call | Checking after means the breaching request was already paid for |
+| Ledger survives restart | Otherwise the ceiling is bypassable by restarting, and a crash loop resets it forever |
+| Ledger unreadable | Must degrade to in-memory accounting, never break the request |
+| **Unknown model priced conservatively** | The big one — see below |
+
+### The one that decides whether the ceiling works at all
+
+⚙️ **An unknown model must be priced at your most expensive known rate, not at
+zero.** Pricing something unrecognised at zero means adding a provider silently
+switches the ceiling off: it fails open, quietly, exactly when something changed.
+
+```python
+def test_unknown_model_is_priced_at_the_worst_known_rate():
+    worst = max(p.output for p in PRICES.values())
+    assert estimate_cost("some-brand-new-model", usage(0, 1_000_000)) == worst
+```
+
+Test the inverse too: a local model that genuinely costs nothing must be free, or
+the ceiling fires on usage that cost you nothing.
+
+### Then verify it live, once
+
+⚙️ Unit tests prove the logic; they do not prove it is *wired in*. One manual pass
+against a running server is worth the minute it takes:
+
+```
+burst=2, 6/min:  request 1 -> 200
+                 request 2 -> 200
+                 request 3 -> 429   retryAfterMs=7390
+                 (wait)     -> 200
+ceiling exceeded -> 402  errorKind=spend-limit
+```
+
+📐 That pass is also where I found the wiring was fine and my *test harness* was
+not — a stale server still held the port, so an earlier "it did not block" result
+came from a completely different process. Check what you are actually talking to.
+
+⚙️ Use **different status codes** for the two, and test that you do. `429` means
+slow down and retry; `402` means the budget is gone and retrying is pointless.
+A client that cannot tell them apart will hammer a ceiling that will not move
+until midnight.
+
 ## How to know your measurement is broken
 
 ⚙️ This section is the one I would keep if I could keep only one. **A failing

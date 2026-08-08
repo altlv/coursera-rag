@@ -91,6 +91,20 @@ Questions are logged to `data/` (gitignored) so `npm run questions` can show wha
 | `npm run eval:answers` | Score the answers: status, must-mention, citations; `--runs=N` averages | ~$0.02 |
 | `npm run questions` | What was asked, and which answers were rated unhelpful | free |
 
+## Cost controls
+
+Two independent limits, because they bound different things — a rate limit caps how *fast* the balance can be spent, not the total.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `RATE_LIMIT_PER_MINUTE` | `20` | Token bucket per caller on `/api/chat`. `0` disables |
+| `RATE_LIMIT_BURST` | `5` | How many can arrive at once before throttling |
+| `DAILY_SPEND_USD` | unset | Daily ceiling, enforced before each call. Unset or `0` disables |
+
+Exceeding them returns `429` (slow down, retry) or `402` (budget gone, do not retry) — deliberately different, because they call for different client behaviour. Both are reported on `/api/providers` before they fire, and the spend ledger persists to `data/spend.json` so a restart cannot reset it.
+
+Cost is estimated from a static price table that will go stale; the token counts beneath it come from the provider and are exact. An unrecognised model is priced at the most expensive known rate, so adding a provider cannot silently switch the ceiling off. [Why that matters →](LEARN-RAG.md#bounding-cost-two-controls-because-they-bound-different-things)
+
 ## Switching the model
 
 Set `CHAT_PROVIDER` in `.env` — `openai` (default), `gemini`, `openrouter`, `groq`, `xai`, or a local `ollama`. All speak the OpenAI protocol, so one SDK serves them all.

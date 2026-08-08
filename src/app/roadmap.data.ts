@@ -295,13 +295,14 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Spend ceiling',
         detail:
-          'Nothing caps cumulative API cost. Low risk on a local prototype, real the moment it is exposed.',
-        status: 'todo',
+          'A daily ceiling, enforced BEFORE the call - checking afterwards means the request that breached it has already been paid for. Tokens are the ledger and dollars a view: token counts come from the provider and are exact, while prices are external and drift, so a wrong price can be corrected later from data that is still right. The decisive choice is that an unknown model is priced at the most expensive KNOWN rate rather than zero - pricing it at zero would mean adding a provider silently switches the ceiling off, failing open exactly when something changed. Local models are the one exception at zero. Persisted write-then-rename to data/spend.json, because without persistence the ceiling is bypassable by restarting and a crash loop would reset it continuously; verified by restarting mid-test and getting a 402. A ledger that cannot be read degrades to per-process accounting rather than breaking the request. Reported on /api/providers before it fires, since a budget you only learn about by hitting it is worse than none. Set DAILY_SPEND_USD; unset or 0 disables it. Honest limit: the price table is a static estimate that will go stale - the token counts under it are exact.',
+        status: 'done',
       },
       {
         title: 'Rate limiting on /api/chat',
-        detail: 'Only matters beyond localhost, but trivial to add before it does.',
-        status: 'todo',
+        detail:
+          'A token bucket per caller, not a fixed window - a fixed window lets someone fire the whole allowance at 59.9s and again at 60.1s, sustaining twice the configured rate across the boundary, while a bucket refills continuously so a short burst is still fine but the average holds. A caller whose address cannot be determined gets ONE shared bucket rather than an exemption, since failing open there would make the limiter bypassable by whatever hid the address. Idle buckets are swept, because one entry per address is a slow leak on a public endpoint. Returns 429 with Retry-After and errorKind "too-many-requests", deliberately distinct from a provider\'s own rate limit: switching model does not help when the limit is ours, and the UI says so. Verified live at burst=2 - two answered, three 429s, then a 200 once the bucket refilled. Set RATE_LIMIT_PER_MINUTE and RATE_LIMIT_BURST; 0 disables.',
+        status: 'done',
       },
       {
         title: 'Prompt injection from documents',

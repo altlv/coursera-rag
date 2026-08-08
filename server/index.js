@@ -17,6 +17,9 @@ const { extractIdentifiers, buildCanonicalSpellings } = require('./answer-checks
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
 const { createHealthTracker } = require('./provider-health');
 const { createQuestionLog } = require('./question-log');
+const { createRateLimiter } = require('./rate-limit');
+const { createSpendLimiter } = require('./spend-limit');
+const fsSync = require('fs');
 
 dotenv.config();
 
@@ -80,6 +83,47 @@ const health = createHealthTracker();
  * a full disk must never stop the chatbot answering. Disable with QUESTION_LOG=off.
  */
 const questionLog = createQuestionLog({ logger: app.log });
+
+/*
+ * Two independent controls on cost, because they bound different things.
+ *
+ * Rate limiting bounds how FAST the balance can be spent. The spend ceiling bounds
+ * the TOTAL - twenty questions a minute all day is still a large bill, so a rate
+ * limit alone is not a budget.
+ *
+ * Both default to off-ish values that suit localhost and are meant to be set for
+ * anything exposed. RATE_LIMIT_PER_MINUTE=0 disables the limiter; DAILY_SPEND_USD
+ * unset or 0 disables the ceiling.
+ */
+const RATE_LIMIT_PER_MINUTE = Number(process.env.RATE_LIMIT_PER_MINUTE ?? 20);
+const RATE_LIMIT_BURST = Number(process.env.RATE_LIMIT_BURST ?? 5);
+const DAILY_SPEND_USD = Number(process.env.DAILY_SPEND_USD ?? 0);
+
+const rateLimiter = createRateLimiter({
+  enabled: RATE_LIMIT_PER_MINUTE > 0,
+  perMinute: RATE_LIMIT_PER_MINUTE,
+  burst: RATE_LIMIT_BURST,
+});
+
+/*
+ * The ledger lives beside the question log, and is gitignored for the same reason.
+ * Persisting it matters: without it the ceiling is bypassable by restarting, and a
+ * crash loop would reset the budget continuously.
+ */
+const SPEND_LEDGER = path.resolve(__dirname, '../data/spend.json');
+
+const spendLimiter = createSpendLimiter({
+  dailyUsd: DAILY_SPEND_USD,
+  load: () => JSON.parse(fsSync.readFileSync(SPEND_LEDGER, 'utf8')),
+  save: (state) => {
+    fsSync.mkdirSync(path.dirname(SPEND_LEDGER), { recursive: true });
+    // Write-then-rename, so a crash mid-write cannot leave a truncated ledger
+    // that reads as "nothing spent today".
+    const tmp = `${SPEND_LEDGER}.tmp`;
+    fsSync.writeFileSync(tmp, JSON.stringify(state, null, 2));
+    fsSync.renameSync(tmp, SPEND_LEDGER);
+  },
+});
 
 let docsStructure = null;
 let docsPages = null;
@@ -324,6 +368,13 @@ async function embedQuery(text) {
     dimensions: store?.dimensions,
     input: text,
   });
+
+  /*
+   * Embedding the query is cheap - roughly 1/1000th of a generation call - but it
+   * is not free, and a loop hammering the endpoint pays it every time. Counting it
+   * keeps the ledger honest about total spend rather than only the expensive half.
+   */
+  spendLimiter.record(store?.model || EMBEDDING_MODEL, response.usage);
 
   const embedding = response.data?.[0]?.embedding;
   if (!embedding) {
@@ -586,11 +637,82 @@ app.get('/api/providers', async () => {
       switchable: false,
       note: 'Changing this requires npm run build-embeddings and npm run build-golden',
     },
+    /*
+     * Reported so the ceiling is observable BEFORE it fires. A budget you only
+     * learn about by hitting it is a worse experience than no budget at all - and
+     * an estimate nobody can see is an estimate nobody can sanity-check against
+     * their provider's actual invoice.
+     */
+    budget: (() => {
+      const state = spendLimiter.check();
+      return {
+        enabled: state.enabled,
+        limitUsd: state.limitUsd,
+        spentUsd: Number(state.spentUsd.toFixed(4)),
+        remainingUsd: state.enabled ? Number(state.remainingUsd.toFixed(4)) : null,
+        inputTokens: state.inputTokens,
+        outputTokens: state.outputTokens,
+        day: state.day,
+        /** Prices drift and vary per provider; the token counts are the exact part. */
+        note: 'Cost is estimated from a static price table. Token counts are exact.',
+      };
+    })(),
+    rateLimit: {
+      enabled: RATE_LIMIT_PER_MINUTE > 0,
+      perMinute: RATE_LIMIT_PER_MINUTE,
+      burst: RATE_LIMIT_BURST,
+    },
   };
 });
 
 app.post('/api/chat', async (request, reply) => {
   const startedAt = Date.now();
+
+  /*
+   * Both cost controls are enforced HERE, before embedding, retrieval or
+   * generation. Checking after the fact means the request that breached the
+   * ceiling has already been paid for.
+   */
+  const limit = rateLimiter.check(request.ip);
+  if (!limit.allowed) {
+    reply.status(429);
+    reply.header('Retry-After', Math.ceil(limit.retryAfterMs / 1000));
+    return {
+      error: 'Too many questions in a short time. Wait a moment and try again.',
+      /*
+       * Distinct from the provider's own 'rate-limit'. That one is worth
+       * suggesting a different provider for; this one is our limit, so switching
+       * would not help and saying so would be misleading advice.
+       */
+      errorKind: 'too-many-requests',
+      retryAfterMs: limit.retryAfterMs,
+    };
+  }
+
+  const budget = spendLimiter.check();
+  if (!budget.allowed) {
+    /*
+     * 402 rather than 429: this is not a "slow down", it is "the budget for today
+     * is gone". Distinguishing them matters because the client should not retry.
+     */
+    reply.status(402);
+    /*
+     * Two decimals for a normal limit, more for a sub-cent one - otherwise a limit
+     * of $0.0001 is reported as "the limit of $0.00 has been reached", which reads
+     * as a bug rather than a setting.
+     */
+    const money = (n) => (n >= 0.01 ? n.toFixed(2) : n.toPrecision(2));
+    return {
+      error:
+        `The daily spend limit of $${money(budget.limitUsd)} has been reached ` +
+        `(estimated $${money(budget.spentUsd)} used). It resets at midnight UTC.`,
+      errorKind: 'spend-limit',
+      permanent: true,
+      spentUsd: Number(budget.spentUsd.toFixed(4)),
+      limitUsd: budget.limitUsd,
+    };
+  }
+
   const { question } = request.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
     reply.status(400);
@@ -647,6 +769,9 @@ app.post('/api/chat', async (request, reply) => {
     try {
       const rewriter = createLlm({ provider: process.env.REWRITE_PROVIDER || 'openai' });
       const result = await rewriteQuestion({ question, history, llm: rewriter });
+      // The rewrite is a real model call. Leaving it out would understate spend on
+      // exactly the conversations that make the most of them.
+      spendLimiter.record(rewriter.model, rewriter.lastUsage);
       searchQuestion = result.question;
       if (result.rewritten) {
         rewrite = { original: result.original, rewritten: result.question };
@@ -723,6 +848,12 @@ app.post('/api/chat', async (request, reply) => {
       citations = generated.citations;
       attribution = generated.attribution ?? null;
       usage = llm.lastUsage;
+      /*
+       * Record what was actually spent, from the provider's own token counts.
+       * Recorded on the way out rather than estimated on the way in, so the ledger
+       * reflects reality including retries.
+       */
+      spendLimiter.record(llm.model, usage);
       health.markOk(llm.provider);
 
       if (generated.droppedCitations?.length) {
