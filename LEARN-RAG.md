@@ -723,7 +723,8 @@ Kept deliberately, because a list of known gaps is more useful than a claim of c
 - **Retrieval doesn't guarantee both sides of an API pair.** Mitigated by naming supersessions in the prompt, but retrieval itself still surfaces one side at a time.
 - **Lost in the middle.** Models attend least to the middle of a long context. Passages carry a rank now, but their *position* is still ignored.
 - **Confidence is provider-dependent**, because it weights the model's own verdict most heavily.
-- **No spend ceiling and no rate limiting.** Low risk on localhost, real the moment it is exposed.
+- **The spend ceiling is an estimate.** The token counts are exact; the price table is static and will go stale, so the dollar figure drifts from the real invoice. Nothing reconciles the two.
+- **Nothing bounds a single expensive question.** The daily ceiling and the rate limit both work on aggregates, so one enormous conversation can still cost more than intended before either notices.
 - **Retrieval quality is honest but not good.** hit@1 73% on the held-out set means roughly one question in four does not put the best page first.
 
 Two entries were removed from this list only after being fixed — prompt injection and question logging. It is worth saying that they sat here as *known* gaps for a while first: writing a gap down is what made it a task rather than a vague unease.
