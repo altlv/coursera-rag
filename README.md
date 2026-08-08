@@ -91,6 +91,7 @@ Questions are logged to `data/` (gitignored) so `npm run questions` can show wha
 | `npm run compare-providers` | Same passages, different writers | ~$0.01 |
 | `npm run check-attribution` | Do cited passages contain the APIs credited to them? | ~$0.02 |
 | `npm run eval:answers` | Score the answers: status, must-mention, citations; `--runs=N` averages | ~$0.02 |
+| `npm run eval:rerank` | A/B reranking against plain retrieval on both eval sets | ~$0.01 |
 | `npm run questions` | What was asked, and which answers were rated unhelpful | free |
 
 ## Cost controls
@@ -140,9 +141,12 @@ The server watches `manifest.json` and clears its caches when the corpus changes
 | Set | hit@1 | hit@3 | MRR |
 | --- | --- | --- | --- |
 | Golden (tuned against) | 100% | 100% | 1.000 |
-| **Held-out (never tuned against)** | **73%** | **93%** | **0.822** |
+| Held-out, vector retrieval only | 73% | 93% | 0.822 |
+| **Held-out, with reranking** | **87%** | **100%** | **0.922** |
 
-**The held-out row is the honest one.** The golden set was used while tuning retrieval, so its perfect score describes the tuning rather than the system. [The full story →](LEARN-RAG.md#evaluating-a-rag-system)
+**The held-out rows are the honest ones.** The golden set was used while tuning retrieval, so its perfect score describes the tuning rather than the system — and being saturated, it reported *no change at all* for reranking. [The full story →](LEARN-RAG.md#evaluating-a-rag-system)
+
+Reranking was built only after a free offline measurement showed it could work: the correct page was in the top 10 for **every** held-out question but first for only 73%, so the whole loss was ordering. The same measurement set the candidate count at 10 rather than the conventional 30–50, which on this corpus adds no recall and only noise. [How →](LEARN-RAG.md#reranking-measure-the-ceiling-before-you-build-the-thing)
 
 Known gaps are listed in [LEARN-RAG.md](LEARN-RAG.md#what-is-still-wrong), and live status is on the Overview page in the running app, from `src/app/roadmap.data.ts`.
 

@@ -20,7 +20,8 @@
     "eval": "node ./scripts/eval-retrieval.js",
     "questions": "node ./scripts/analyse-questions.js",
     "check-attribution": "node scripts/check-attribution.js",
-    "eval:answers": "node scripts/eval-answers.js"
+    "eval:answers": "node scripts/eval-answers.js",
+    "eval:rerank": "node scripts/eval-rerank.js"
   },
   "private": true,
   "packageManager": "npm@11.17.0",

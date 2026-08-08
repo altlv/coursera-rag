@@ -227,6 +227,45 @@ A useful reframing came out of that measurement too: of the four API-pair questi
 
 MMR is kept in the code, defaulted off, because it may well help a corpus with genuine redundancy. `npm run eval -- --mmr=0.7` re-runs the comparison.
 
+### Reranking: measure the ceiling before you build the thing
+
+The bi-encoder embeds question and passage **separately**, then compares the vectors. That is what makes searching 1,122 passages take milliseconds — and it means the model never sees the question and the passage together. It compares two summaries written in isolation.
+
+A **cross-encoder** scores the pair jointly, so it can model interaction: that this word in the question refers to that phrase in the passage. Far more accurate, far too slow for the whole corpus. Hence: **retrieve cheaply and widely, rerank expensively and narrowly.**
+
+⚙️ **The measurement that should come first is free.** A reranker can only reorder what it is given, so the honest first question is not *"does reranking help"* but *"is the right page even in the candidate set"* — and `recall@N` answers it offline with the cached vectors. It is the hard ceiling: a *perfect* reranker scores `hit@1 = recall@N` and nothing above it.
+
+📐 On the held-out set:
+
+| Candidates | recall | mean rank of the correct page |
+| --- | --- | --- |
+| top 5 (production) | 93% | 1.3 |
+| **top 10** | **100%** | **1.9** |
+| top 30 | 100% | 2.3 |
+| top 50, floor 0.10 | 100% | 2.7 |
+
+Two things fell out of that table, before a line of reranking code existed.
+
+**The headroom was real.** The correct page is in the top 10 for *every* held-out question, and first for only 73%. The entire 27-point gap was ordering — exactly what a reranker fixes. Had recall@10 been 75%, most of the loss would have been retrieval and reranking could not have touched it.
+
+**The conventional advice was wrong here.** Every guide says feed a reranker 30–50 candidates. On this corpus that buys **no** extra recall — it is already 100% at 10 — while pushing the correct page's mean rank from 1.9 to 2.7. Strictly more noise to sift, for nothing. So the candidate count is 10, chosen by measurement rather than by convention.
+
+**The result**, over three runs to rule out one lucky ordering:
+
+| | Before | After |
+| --- | --- | --- |
+| hit@1 | 73% | **87%** |
+| hit@3 | 93% | **100%** |
+| MRR | 0.822 | **0.922** |
+
+Three questions moved up, one moved down, and the question that had *never* been retrieved — *"how do I attach a directive without putting it in the template?"* — went from a miss to rank 1, because widening to 10 candidates surfaced it and the reranker put it first. The golden set, saturated as ever, reported nothing.
+
+**The property that makes it safe to switch on.** Anything the model fails to place keeps its retrieval order and follows what it did place. A malformed reply, a refusal, a provider outage — all degrade to the ordering the system had before reranking existed. **It cannot do worse than not having one**, which is a structural guarantee rather than a hope.
+
+⚙️ **It is pinned to one provider**, like embeddings and the query rewriter, because it changes *retrieval*. If it followed `CHAT_PROVIDER`, the passages would change with the model and comparing providers on identical evidence would stop meaning anything.
+
+**The costs, stated:** one extra model call per question (~$0.0002), and a delay before the first token of a streamed answer. `RERANK=off` reverts to pure vector ordering — verified, and it takes that question back to the wrong page.
+
 ### What did work: telling the model the fact
 
 If the corpus states a fact inconsistently, supply the fact rather than reranking around it.

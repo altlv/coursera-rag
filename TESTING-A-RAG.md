@@ -829,6 +829,84 @@ none improved, you have your answer without further analysis.
 
 ---
 
+## Measure the ceiling before you build the fix
+
+⚙️ The cheapest measurement in this document, and the one most often skipped.
+
+Before building anything that **reorders** results — a reranker, a fusion tweak, a
+scoring change — measure the ceiling it could possibly reach. Reordering can only
+work with what retrieval already found, so:
+
+```python
+def recall_at(n, questions, vectors, store):
+    """The hard upper bound on any reordering: a PERFECT reranker scores this."""
+    found = sum(
+        any(r["path"].startswith(p) for p in q["acceptable"]
+            for r in retrieve(vectors[q["question"]], store, k=n))
+        for q in questions
+    )
+    return found / len(questions)
+```
+
+It costs nothing — cached vectors, no network — and it answers two questions at
+once.
+
+**Is the headroom real?** 📐 Here, `recall@10` was **100%** against `hit@1` of
+73%: the correct page was in the top 10 for every held-out question and first for
+under three-quarters of them. The whole loss was ordering, so a reranker was worth
+building. Had recall@10 been 75%, most of the loss would have been *retrieval*,
+and no amount of reordering could have touched it — that is a completely different
+piece of work, and the free measurement tells you which one you have.
+
+**How wide should the candidate set be?** Measure it rather than copying the
+advice. 📐 Every guide says feed a reranker 30–50 candidates. On this corpus:
+
+| Candidates | recall | mean rank of the correct page |
+| --- | --- | --- |
+| 10 | 100% | 1.9 |
+| 30 | 100% | 2.3 |
+| 50 | 100% | 2.7 |
+
+Widening past 10 adds **no** recall and steadily more noise. The conventional
+number would have been strictly worse.
+
+⚙️ The general form: **for any change that reorders rather than finds, there is a
+free offline measurement of its maximum possible benefit.** Run it first. It is
+the difference between building something and finding out, and knowing before you
+start whether the thing you are about to build can possibly work.
+
+### Give a reordering step a floor it cannot fall below
+
+⚙️ Build the fallback into the structure, not the error handling. If anything the
+reranker fails to place keeps its original relative order and follows what it did
+place, then a malformed reply, a refusal or an outage all degrade to *exactly* the
+behaviour of not having a reranker.
+
+```python
+def test_falls_back_to_retrieval_order_when_the_model_returns_nothing_usable():
+    result = rerank(question, candidates, llm=fake("sorry, no"))
+    assert [c.id for c in result] == [1, 2, 3]
+
+def test_appends_anything_the_model_did_not_rank():
+    result = rerank(question, candidates, llm=fake("3"))
+    assert [c.id for c in result] == [3, 1, 2]     # nothing silently dropped
+```
+
+That property is what lets you switch it on without holding your breath, and it is
+worth more than any accuracy gain.
+
+### Trim after reordering, never before
+
+⚙️ Obvious once stated, easy to get wrong, and it silently makes the whole feature
+a no-op:
+
+```python
+def test_trims_to_top_k_after_reordering():
+    # A passage retrieval ranked 3rd must be able to reach the final top 2.
+    result = rerank(question, three_candidates, llm=fake("3, 2, 1"), top_k=2)
+    assert [c.id for c in result] == [3, 2]
+```
+
 ## Your metric may not measure the thing you are fixing
 
 ⚙️ The subtlest failure in this document.

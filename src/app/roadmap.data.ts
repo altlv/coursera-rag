@@ -162,8 +162,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Reranking',
         detail:
-          'Retrieve ~20 by vector then rerank to 5 with a cheap model call. Would help where fusion still ranks the best passage below the top 3. Worth doing only once a held-out eval set can prove it helped.',
-        status: 'todo',
+          'Measured, kept. The ceiling was measured FIRST, free and offline: recall@10 on the held-out set is 100% while hit@1 is 73%, so the correct page was in the top 10 for every question and first for under three-quarters - the whole loss was ordering, which is exactly what a reranker fixes. That same measurement contradicted the usual advice to feed a reranker 30-50 candidates: on this corpus widening past 10 adds no recall and pushes the correct page mean rank from 1.9 to 2.7, so the candidate count is 10. Result over three runs: hit@1 73 to 87%, hit@3 93 to 100%, MRR 0.822 to 0.922. The question that had never been retrieved at all - how do I attach a directive without putting it in the template - went from a miss to rank 1. The golden set reported nothing, being saturated. Listwise rather than pairwise, so one call per question rather than ten. Anything the model fails to place keeps its retrieval order behind what it did place, so a malformed reply or an outage degrades to exactly the behaviour of not having a reranker - it cannot do worse than none. Pinned to one provider like embeddings and the rewriter, because it changes RETRIEVAL and following CHAT_PROVIDER would make provider comparison meaningless. Costs one extra call per question and delays the first token of a streamed answer; RERANK=off reverts it.',
+        status: 'done',
       },
     ],
   },

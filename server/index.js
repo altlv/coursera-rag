@@ -18,6 +18,7 @@ const { extractIdentifiers, buildCanonicalSpellings } = require('./answer-checks
 const { createLlm, listAvailable, resolveProvider } = require('./llm-providers');
 const { createHealthTracker } = require('./provider-health');
 const { createQuestionLog } = require('./question-log');
+const { rerank } = require('./rerank');
 const { createRateLimiter } = require('./rate-limit');
 const { createSpendLimiter } = require('./spend-limit');
 const fsSync = require('fs');
@@ -773,6 +774,31 @@ function boundHistory(body) {
     }));
 }
 
+/*
+ * Reranking.
+ *
+ * Measured on the held-out set before being switched on, and again over three runs
+ * to be sure it was not one lucky ordering:
+ *
+ *   hit@1  73% -> 87%     hit@3  93% -> 100%     MRR  0.822 -> 0.922
+ *
+ * The ceiling was measured first, free and offline: the correct page is in the top
+ * 10 for EVERY held-out question but first for only 73% of them, so the whole loss
+ * was ordering - exactly what a reranker fixes. That same measurement set the
+ * candidate count at 10 rather than the conventional 30-50, which on this corpus
+ * adds no recall and pushes the correct page's mean rank from 1.9 to 2.7.
+ *
+ * PINNED to one provider, deliberately, for the same reason as embeddings and the
+ * query rewriter: this changes RETRIEVAL. If it followed CHAT_PROVIDER, the
+ * passages would change with the model and comparing providers on identical
+ * evidence would stop meaning anything.
+ *
+ * RERANK=off disables it. The cost is one extra model call per question - about
+ * $0.0002, and a delay before the first token of a streamed answer.
+ */
+const RERANK_ENABLED = process.env.RERANK !== 'off';
+const RERANK_CANDIDATES = Number(process.env.RERANK_CANDIDATES ?? 10);
+
 /** Rewrite a follow-up into a standalone question, and retrieve for it. */
 async function retrieveFor(question, history) {
   let searchQuestion = question;
@@ -795,21 +821,57 @@ async function retrieveFor(question, history) {
 
   let results = [];
   let mode = 'lexical';
+  /*
+   * Retrieve wider when reranking, so a passage the bi-encoder ranked 7th can
+   * still reach the prompt. Trimming to TOP_K before reranking would make the
+   * whole exercise a no-op.
+   */
+  const wanted = RERANK_ENABLED && chatProvider.name ? RERANK_CANDIDATES : TOP_K;
+
   try {
     if (embeddingClient && (await loadVectorStore())) {
       const formulations = searchQuestion === question ? [question] : [question, searchQuestion];
-      results = await searchVectors(formulations, TOP_K);
+      results = await searchVectors(formulations, wanted);
       mode = 'vector';
     }
   } catch (error) {
     app.log.warn(`Vector search failed, falling back to lexical: ${error.message}`);
   }
   if (!results.length && mode !== 'vector') {
-    results = await searchDocs(searchQuestion, TOP_K);
+    results = await searchDocs(searchQuestion, wanted);
     mode = 'lexical';
   }
 
-  return { results, mode, rewrite, searchQuestion };
+  let reranked = false;
+  if (RERANK_ENABLED && chatProvider.name && results.length > 1) {
+    try {
+      const reranker = createLlm({ provider: process.env.RERANK_PROVIDER || 'openai' });
+      const ordered = await rerank({
+        // The SEARCH question, not the one as typed: for a follow-up, the
+        // standalone form is what the passages should be judged against.
+        question: searchQuestion,
+        candidates: results,
+        llm: reranker,
+        topK: TOP_K,
+      });
+      spendLimiter.record(reranker.model, reranker.lastUsage);
+      reranked = true;
+      // queryVector rides on the array for the question log, so it is carried over.
+      ordered.queryVector = results.queryVector;
+      results = ordered;
+    } catch (error) {
+      /*
+       * A reranker outage must never cost an answer. Falling through leaves the
+       * retrieval ordering, which is what the system did before reranking existed.
+       */
+      app.log.warn(`Rerank failed, using retrieval order: ${error.message}`);
+      results = results.slice(0, TOP_K);
+    }
+  } else if (results.length > TOP_K) {
+    results = results.slice(0, TOP_K);
+  }
+
+  return { results, mode, rewrite, searchQuestion, reranked };
 }
 
 app.post('/api/chat', async (request, reply) => {
