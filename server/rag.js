@@ -30,13 +30,70 @@ const { verifyAttribution, validateCodeSamples } = require('./answer-checks');
  * then split on /\n{2,}/, which could never match, so every page became a single
  * chunk of up to 53,547 characters and maxChars was silently ignored.
  */
-function normalizeText(value) {
-  return (value || '')
-    .replace(/\r\n/g, '\n')
+const CODE_FENCE = '```';
+/** Splits text into alternating prose and fenced-code segments, fences included. */
+const FENCE_SPLIT = /(```[\s\S]*?```)/g;
+
+function normalizeProse(value) {
+  return value
     .replace(/[ \t]+/g, ' ')
     .replace(/[ \t]*\n[ \t]*/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+function normalizeText(value) {
+  const input = (value || '').replace(/\r\n/g, '\n');
+
+  /*
+   * Fenced code is normalised differently from prose, because the collapses above
+   * would destroy it: `[ \t]+ -> ' '` unindents every line, and that indentation is
+   * the structure of the sample. Only trailing whitespace and excess blank lines go.
+   *
+   * The scraper fences code at extraction time - see extractText in
+   * scripts/docs-source.js - precisely so this distinction can be made here.
+   */
+  return input
+    .split(FENCE_SPLIT)
+    .map((segment) =>
+      segment.startsWith(CODE_FENCE)
+        ? segment.replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n')
+        : normalizeProse(segment),
+    )
+    .join('')
     .trim();
+}
+
+/**
+ * Split an oversized code block at LINE boundaries, re-fencing each part.
+ *
+ * A sample too large for one passage has to be divided somewhere, but cutting
+ * mid-line produces two fragments that are each invalid. Splitting between lines
+ * at least leaves both halves readable, and re-fencing keeps the marker intact so
+ * everything downstream still knows it is code.
+ */
+function splitFencedBlock(block, maxChars) {
+  const lines = block.split('\n');
+  const openingFence = lines[0];
+  const body = lines.slice(1, -1);
+
+  const parts = [];
+  let current = [];
+  // Budget for the fence lines this part will carry.
+  const overhead = openingFence.length + CODE_FENCE.length + 2;
+
+  for (const line of body) {
+    const projected = current.reduce((n, l) => n + l.length + 1, 0) + line.length + overhead;
+    if (current.length > 0 && projected > maxChars) {
+      parts.push(`${openingFence}\n${current.join('\n')}\n${CODE_FENCE}`);
+      current = [];
+    }
+    current.push(line);
+  }
+  if (current.length > 0) {
+    parts.push(`${openingFence}\n${current.join('\n')}\n${CODE_FENCE}`);
+  }
+
+  return parts.length > 0 ? parts : [block];
 }
 
 /**
@@ -86,19 +143,28 @@ function chunkText(text, maxChars = 1200, overlap = 150) {
   const clean = normalizeText(text);
   if (!clean) return [];
 
-  const paragraphs = clean
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean);
-
-  // Pre-split anything too large, so the packing loop below only ever deals
-  // with pieces that already fit.
+  /*
+   * A fenced code block is ONE unit and is never split on blank lines, because a
+   * blank line inside a sample is not a paragraph break. Before fencing existed,
+   * an 80-line example was cut in half by exactly that rule, leaving two passages
+   * each holding an incomplete sample.
+   */
   const pieces = [];
-  for (const paragraph of paragraphs) {
-    if (paragraph.length <= maxChars) {
-      pieces.push(paragraph);
-    } else {
-      pieces.push(...splitOversized(paragraph, maxChars, overlap));
+  for (const segment of clean.split(FENCE_SPLIT)) {
+    if (!segment) continue;
+
+    if (segment.startsWith(CODE_FENCE)) {
+      const block = segment.trim();
+      // Only a block too big for any passage gets divided, and then at line breaks.
+      if (block.length <= maxChars) pieces.push(block);
+      else pieces.push(...splitFencedBlock(block, maxChars));
+      continue;
+    }
+
+    for (const paragraph of segment.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean)) {
+      // Pre-split anything too large, so the packing loop only handles pieces that fit.
+      if (paragraph.length <= maxChars) pieces.push(paragraph);
+      else pieces.push(...splitOversized(paragraph, maxChars, overlap));
     }
   }
 
@@ -1116,6 +1182,8 @@ function createOpenAiLlm(client, { model = 'gpt-4o-mini', temperature = 0.2 } = 
 module.exports = {
   normalizeText,
   chunkText,
+  splitFencedBlock,
+  CODE_FENCE,
   splitOversized,
   normalizeVector,
   dotProduct,

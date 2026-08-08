@@ -290,6 +290,102 @@ function sectionsForReleases(releases) {
  *
  * With an allowlist, anything unanticipated is dropped rather than passed through.
  */
+/*
+ * Text extraction, with code blocks fenced.
+ *
+ * `main.textContent` flattens a <pre> into the surrounding prose. Measured on the
+ * corpus that produced 1,307 code blocks across 103 of 114 pages arriving as
+ * undifferentiated text - a sample ran straight into the sentence after it
+ * ("...export class ParentComponent {}The fix is straightforward"), and nothing
+ * downstream could tell where code began or ended.
+ *
+ * Two consequences, both fixed here rather than in chunkText. "Code-block-aware
+ * chunking" sounds like a chunking change, but the boundary information was
+ * already destroyed by the time chunking ran: there was nothing to be aware of.
+ *
+ *   1. Chunking splits on blank lines, so a long sample could be cut in half.
+ *      Fencing gives chunkText a marker it can refuse to split inside.
+ *   2. Indentation was destroyed by the [ \t]+ -> ' ' collapse, so every sample in
+ *      the corpus was unindented. Code is normalised separately from prose now, so
+ *      structure survives.
+ *
+ * Placeholders are used rather than mutating the tree, so contentHtml - taken from
+ * the same element afterwards - is unaffected.
+ */
+const CODE_FENCE = '```';
+
+/*
+ * Implemented, measured, and OFF - the same treatment as MMR in rag.js.
+ *
+ * Fencing does what it promised: samples stop being cut in half, stop running into
+ * the following sentence, and keep their indentation. It also cost retrieval
+ * quality, measured on the held-out set:
+ *
+ *   baseline (no fencing)              hit@1 73%   MRR 0.822
+ *   fenced, code blocks atomic         hit@1 53%   MRR 0.700
+ *   fenced + lead-in prose at embed    hit@1 60%   MRR 0.733
+ *
+ * The cause: making a sample atomic means a large one becomes a passage of PURE
+ * CODE, and `title + raw TypeScript` carries almost no natural-language signal, so
+ * questions stop matching it. Giving those passages their lead-in prose at embed
+ * time recovered 7 points of the 20 and no more.
+ *
+ * The golden set reported no change at either step - saturated, as usual.
+ *
+ * So the trade is real and it does not pay: better text for the model to read,
+ * against a 13-point drop in finding the right page at all. Retrieval failing is
+ * the worse outcome, because the model never sees the passage to read it.
+ *
+ * Kept because the machinery is right and the loss is specific to how this corpus
+ * distributes code. A corpus with smaller samples, or a retriever that indexed code
+ * and prose separately, would likely come out ahead.
+ */
+const FENCE_CODE_BLOCKS = false;
+
+function extractText(main, { fenceCode = FENCE_CODE_BLOCKS } = {}) {
+  const clone = main.cloneNode(true);
+  const blocks = [];
+
+  for (const pre of fenceCode ? clone.querySelectorAll('pre') : []) {
+    /*
+     * Trailing whitespace per line goes; leading whitespace stays, because that is
+     * the structure worth keeping. Angular's docs put the language on a class,
+     * which is worth carrying through: it tells the model whether it is looking at
+     * TypeScript or a template.
+     */
+    const code = (pre.textContent || '')
+      .replace(/[ \t]+$/gm, '')
+      .replace(/^\n+|\n+$/g, '');
+    if (!code) continue;
+
+    /*
+     * A language tag would tell the model whether it is reading TypeScript or a
+     * template. angular.dev does NOT provide one: it highlights with Shiki, so the
+     * class is `shiki shiki-themes github-light github-dark` and the language is
+     * resolved at build time and thrown away. So every fence in this corpus is
+     * untagged, and this branch is inert here.
+     *
+     * Kept because it costs nothing and a corpus using the conventional
+     * `language-ts` class would benefit - but it is dead code against angular.dev,
+     * which is worth saying rather than leaving it looking like a working feature.
+     */
+    const langMatch = (pre.className || '').match(/language-([a-z0-9]+)/i);
+    const lang = langMatch ? langMatch[1] : '';
+
+    blocks.push(`${CODE_FENCE}${lang}\n${code}\n${CODE_FENCE}`);
+    // A token that survives whitespace collapsing and cannot occur in prose.
+    pre.textContent = `\n\nCODEBLOCK${blocks.length - 1}ENDCODEBLOCK\n\n`;
+  }
+
+  const text = (clone.textContent || '')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/[ \t]*\n[ \t]*/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return text.replace(/CODEBLOCK(\d+)ENDCODEBLOCK/g, (_, i) => blocks[Number(i)] ?? '');
+}
+
 const ALLOWED_ATTRIBUTES = new Set([
   'href',
   'src',
@@ -391,11 +487,7 @@ function extractPage(html, pagePath) {
    * retrieval signal, and dropping it would change every page's content hash and
    * force a full re-embed for a display-only fix.
    */
-  const contentText = (main.textContent || '')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/[ \t]*\n[ \t]*/g, '\n')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  const contentText = extractText(main);
 
   /*
    * Remove the h1 from the HTML only. The docs viewer renders `title` as its own
@@ -608,6 +700,8 @@ module.exports = {
   sectionsForReleases,
   compareSemver,
   extractPage,
+  extractText,
+  CODE_FENCE,
   sanitizeElement,
   ALLOWED_ATTRIBUTES,
   isRedirectStub,

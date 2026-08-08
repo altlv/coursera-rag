@@ -78,9 +78,39 @@ Meanwhile the keyword scorer *did* read the title. The two halves of retrieval d
 
 Only the held-out set could see it: hit@1 **67% → 73%**, MRR **0.789 → 0.822**. More on why that matters in [Evaluation](#evaluating-a-rag-system).
 
+### Code blocks: a third fix that measurement rejected
+
+Chunking splits on blank lines and knows nothing about code, so an 80-line example lands in two passages. For a *documentation* assistant, where the code is often the whole answer, that is a real defect — and fixing it made retrieval **worse**.
+
+**First finding: it was not a chunking problem at all.** `main.textContent` cannot distinguish a `<pre>` from a paragraph, so **1,307 code blocks across 103 of 114 pages** arrived as undifferentiated prose. One sample ran straight into the sentence after it:
+
+```
+...export class ParentComponent {}The fix is straightforward — import directly...
+```
+
+The boundary was destroyed at *scrape* time. By the time chunking ran there was nothing to be aware of. "Code-block-aware chunking" was the wrong name for the task.
+
+So the scraper now fences code before extracting text, and normalisation treats fenced regions differently — the prose collapse `[ \t]+ → ' '` was also unindenting every sample in the corpus.
+
+**Then the measurement:**
+
+| Store | hit@1 | hit@3 | MRR |
+| --- | --- | --- | --- |
+| Baseline, no fencing | **73%** | 93% | **0.822** |
+| Fenced, code blocks atomic | 53% | 93% | 0.700 |
+| Fenced + lead-in prose at embed time | 60% | 93% | 0.733 |
+
+**Why.** Making a sample atomic means a large one becomes a passage of *pure code*. Its embedding is `title + raw TypeScript`, which carries almost no natural-language signal, so questions stopped matching those passages at all. The second row is the naive fix; the third adds the preceding prose to the code passage's embedding — the same move as [contextual chunking](#contextual-chunking--the-fix-the-golden-set-could-not-see), one level further. It recovered 7 points of the 20 and no more.
+
+**The trade does not pay.** Better text for the model to read, against a 13-point drop in finding the right page at all. Retrieval failing is strictly worse, because then the model never sees the passage to read it.
+
+It is **off, not deleted** — the third thing in this file given that treatment, after MMR and the ungrounded-mention check. The loss is specific to how *this* corpus distributes code; a corpus of smaller samples, or a retriever indexing code and prose separately, would likely come out ahead.
+
+Two smaller things fell out of it. The golden set again reported **no change at either step**, which is what a saturated metric does. And the held-out floor in `holdout.test.mjs` failed at MRR 0.733 against its 0.75 threshold — the regression guard doing precisely its job, on a change I had made deliberately and still needed to be stopped from shipping.
+
 ### Still broken
 
-Chunking splits on blank lines and knows nothing about fenced code, so an 80-line example lands in two passages. For a *documentation* assistant, where the code is often the whole answer, that is a real defect.
+Paragraph breaks depend on incidental source formatting. `textContent` does not insert one at a block boundary, so `<p>One.</p><p>Two.</p>` really does yield `One.Two.` — the breaks in this corpus come from newlines in the served HTML. It works, and it would stop working if angular.dev minified its markup.
 
 ---
 
@@ -572,7 +602,7 @@ Kept deliberately, because a list of known gaps is more useful than a claim of c
 
 - **Attribution is only checked on API names.** Narrowed, not closed. A misattributed *prose* claim still passes, and coverage is thin — 27 answers yielded 19 identifier claims, so answers that are prose throughout are unchecked. See [Attribution](#attribution-checking-the-citation-points-at-the-right-passage).
 - **Code validation is spelling, not compilation.** Casing and legacy/modern mixing are checked; nothing type-checks or compiles a sample, so a snippet with a real type error passes. And 71 samples produced zero findings, so it is a regression guard rather than a demonstrated win.
-- **Code samples split across chunks.** An 80-line example lands in two passages; chunking splits on blank lines and knows nothing about fenced code.
+- **Code samples split across chunks.** Still true, and now known to be *hard*: fixing it costs 13 points of hit@1, because an atomic code block becomes an unfindable pure-code passage. [Measured three ways](#code-blocks-a-third-fix-that-measurement-rejected).
 - **Retrieval doesn't guarantee both sides of an API pair.** Mitigated by naming supersessions in the prompt, but retrieval itself still surfaces one side at a time.
 - **Lost in the middle.** Models attend least to the middle of a long context. Passages carry a rank now, but their *position* is still ignored.
 - **Confidence is provider-dependent**, because it weights the model's own verdict most heavily.
@@ -587,7 +617,9 @@ Two entries were removed from this list only after being fixed — prompt inject
 
 The RAG-specific knowledge above is useful. These are the transferable parts — every one of them cost something to learn here.
 
-**A plausible fix can make things worse.** MMR is a standard, principled technique for exactly the problem I had. It reduced hit@3 from 93% to 80%. Principled does not mean applicable: MMR assumes redundancy is the problem, and mine was scarcity of one viewpoint.
+**A plausible fix can make things worse.** MMR is a standard, principled technique for exactly the problem I had. It reduced hit@3 from 93% to 80%. Principled does not mean applicable: MMR assumes redundancy is the problem, and mine was scarcity of one viewpoint. Three separate improvements in this project measured worse and were kept switched off. That is not a run of bad luck — it is what happens when you measure, and the alternative is not fewer regressions but unnoticed ones.
+
+**Check where the information was destroyed, not where you noticed the symptom.** "Code samples split across chunks" sounds like a chunking bug. The boundary had already been erased by the scraper, so no change to chunking could have worked. I nearly spent the effort one layer too far downstream.
 
 **Never evaluate on the data you tuned against.** The golden set reported hit@1 100%, hit@3 100%, MRR 1.000. The held-out set said hit@1 **73%**, hit@3 93%, MRR 0.822. The second is the truth; the gap between them is the cost of the mistake.
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { JSDOM } from 'jsdom';
-import { sanitizeElement, ALLOWED_ATTRIBUTES } from '../../scripts/docs-source.js';
+import { sanitizeElement, ALLOWED_ATTRIBUTES, extractText } from '../../scripts/docs-source.js';
 
 /*
  * HTML sanitisation of scraped documentation.
@@ -132,5 +132,117 @@ describe('sanitizeElement', () => {
         'width',
       ].sort(),
     );
+  });
+});
+
+/*
+ * Text extraction, with code fenced.
+ *
+ * `main.textContent` cannot distinguish a <pre> from a paragraph, so 1,307 code
+ * samples across 103 of 114 pages arrived glued to the prose around them - one ran
+ * straight into the following sentence as "...class ParentComponent {}The fix is".
+ * Nothing downstream could see where code began or ended.
+ */
+// fenceCode is opt-in: it is OFF in production, having measured worse. These
+// tests cover the capability, so they enable it explicitly.
+const extract = (html, opts = { fenceCode: true }) => {
+  const dom = new JSDOM(`<main id="m">${html}</main>`);
+  return extractText(dom.window.document.getElementById('m'), opts);
+};
+
+describe('extractText', () => {
+  it('fences a code block so a boundary exists at all', () => {
+    const text = extract('<p>Before.</p><pre><code>const a = 1;</code></pre><p>After.</p>');
+    expect(text).toMatch(/```/);
+    expect(text).toContain('const a = 1;');
+  });
+
+  it('separates code from the sentence that follows it', () => {
+    // The exact defect: '{}' ran into 'The fix is straightforward'.
+    const text = extract('<pre><code>class A {}</code></pre><p>The fix is straightforward.</p>');
+    expect(text).not.toContain('class A {}The fix');
+  });
+
+  it('preserves indentation, which prose normalisation would destroy', () => {
+    const text = extract('<pre><code>class A {\n  method() {\n    return 1;\n  }\n}</code></pre>');
+    expect(text).toContain('  method() {');
+    expect(text).toContain('    return 1;');
+  });
+
+  it('carries the language through from the class attribute', () => {
+    // Tells the model whether it is reading TypeScript or a template.
+    const text = extract('<pre class="language-ts"><code>const a = 1;</code></pre>');
+    expect(text).toContain('```ts');
+  });
+
+  it('emits a bare fence when the source gives no language, as angular.dev does', () => {
+    /*
+     * Measured, not assumed: angular.dev highlights with Shiki, so its class is
+     * 'shiki shiki-themes github-light github-dark' and the language is resolved at
+     * build time and discarded. Every fence in this corpus is therefore untagged,
+     * and the branch above is inert here - worth pinning so nobody reads the
+     * feature as working.
+     */
+    const text = extract(
+      '<pre class="shiki shiki-themes github-light github-dark"><code>const a = 1;</code></pre>',
+    );
+    expect(text).toContain('```\nconst a = 1;');
+  });
+
+  it('still collapses whitespace in prose', () => {
+    expect(extract('<p>Some     spaced     prose.</p>')).toContain('Some spaced prose.');
+  });
+
+  it('keeps the newlines chunking splits on', () => {
+    /*
+     * Worth being precise about where paragraph breaks come from: textContent does
+     * NOT insert one at a block boundary, so '<p>One.</p><p>Two.</p>' with no
+     * whitespace between the tags really does yield 'One.Two.'. The breaks in the
+     * corpus come from newlines in the served HTML.
+     *
+     * That makes chunking dependent on how the source happens to be formatted -
+     * fragile, but pre-existing and currently true (114 pages yield 1,122 chunks).
+     * Fencing code removes the dependency for the part that matters most, since a
+     * fence is an explicit boundary rather than an incidental one.
+     */
+    expect(extract('<p>One.</p>\n<p>Two.</p>')).toMatch(/One\.\s*\n\s*Two\./);
+    expect(extract('<p>One.</p><p>Two.</p>')).toBe('One.Two.');
+  });
+
+  it('ignores an empty pre rather than emitting a bare fence', () => {
+    const text = extract('<p>Text.</p><pre></pre>');
+    expect(text).not.toMatch(/```/);
+  });
+
+  it('handles several blocks without mixing them up', () => {
+    const text = extract(
+      '<pre><code>first();</code></pre><p>Then:</p><pre><code>second();</code></pre>',
+    );
+    expect(text).toContain('first();');
+    expect(text).toContain('second();');
+    expect((text.match(/```/g) || []).length).toBe(4);
+  });
+});
+
+describe('code fencing is off by default', () => {
+  /*
+   * Measured on the held-out set, and rejected:
+   *
+   *   baseline (no fencing)             hit@1 73%   MRR 0.822
+   *   fenced, code blocks atomic        hit@1 53%   MRR 0.700
+   *   fenced + lead-in prose at embed   hit@1 60%   MRR 0.733
+   *
+   * Making a sample atomic turns a large one into a passage of pure code, and
+   * 'title + raw TypeScript' has almost no natural-language signal for a question
+   * to match. The golden set reported no change at either step, being saturated.
+   *
+   * Pinned as a test because the default is the decision. A flag flipped without
+   * re-running the eval would quietly cost 13 points of hit@1.
+   */
+  it('leaves code unfenced unless explicitly asked', () => {
+    const dom = new JSDOM('<main id="m"><p>Before.</p><pre><code>const a = 1;</code></pre></main>');
+    const text = extractText(dom.window.document.getElementById('m'));
+    expect(text).not.toMatch(/```/);
+    expect(text).toContain('const a = 1;');
   });
 });

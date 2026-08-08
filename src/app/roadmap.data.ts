@@ -153,11 +153,11 @@ export const ROADMAP: RoadmapPhase[] = [
         where: 'server/build-vector-store.js',
       },
       {
-        title: 'Code-block-aware chunking',
+        title: 'Code-block-aware chunking (tried, measured worse, off)',
         detail:
-          'Chunking splits on blank lines and knows nothing about fenced code, so a long example is torn across two passages - verified with an 80-line sample landing in 2 chunks. Bad for a documentation assistant specifically, where the code IS the answer.',
+          'Attempted and rejected on measurement, like MMR. First finding: it was not a chunking problem. main.textContent cannot distinguish a <pre> from a paragraph, so 1,307 code blocks across 103 of 114 pages arrived glued to the prose around them - one sample ran straight into the next sentence as "...class ParentComponent {}The fix is straightforward". The boundary was destroyed at SCRAPE time, so no chunking change could have worked. Fencing at extraction plus atomic code blocks then measured worse on the held-out set: hit@1 73 to 53%, MRR 0.822 to 0.700. Adding the lead-in prose to a code passage embedding recovered 7 of the 20 points and no more (60%, 0.733). The cause is that an atomic sample becomes a passage of PURE CODE, whose embedding is title plus raw TypeScript and carries almost no signal a natural-language question can match. Better text for the model to read is not worth a 13-point drop in finding the page at all - retrieval failing is worse, since then the model never sees the passage. Off, not deleted: FENCE_CODE_BLOCKS in scripts/docs-source.js. The golden set reported no change at either step, and the held-out MRR floor in holdout.test.mjs failed at 0.733 against 0.75 - the regression guard stopping a change I had made on purpose.',
         status: 'todo',
-        where: 'server/rag.js chunkText()',
+        where: 'scripts/docs-source.js extractText(), server/rag.js chunkText()',
       },
       {
         title: 'Reranking',

@@ -46,6 +46,12 @@ const EMBEDDING_MODEL = 'text-embedding-3-small';
 const DIMENSIONS = 512;
 const CHUNK_CHARS = 1200;
 const CHUNK_OVERLAP = 150;
+/*
+ * How much preceding prose to carry into a code-only passage's embedding. Enough
+ * to say what the sample demonstrates, short enough not to swamp it - a question
+ * should still match the code chunk rather than the lead-in's own passage.
+ */
+const CONTEXT_CHARS = 300;
 
 /*
  * Chunks are ~1200 chars (~300 tokens), so 64 per request is ~19k tokens - well
@@ -98,8 +104,30 @@ function buildChunks(pages) {
   for (const page of pages) {
     const pieces = chunkText(page.contentText || '', CHUNK_CHARS, CHUNK_OVERLAP);
 
+    /*
+     * The prose immediately before the current piece, carried forward so a
+     * code-only passage can be embedded with something a question can match.
+     *
+     * Fencing code made samples atomic, which stopped an 80-line example being cut
+     * in half - and cost hit@1 20 points on the held-out set, because a large sample
+     * now forms a passage of PURE CODE. `title + raw TypeScript` has almost no
+     * natural-language signal, so questions stopped matching those passages at all.
+     *
+     * Same reasoning as contextual chunking above, one level further: a passage
+     * needs enough surrounding context to be findable, and for code the title alone
+     * is not enough.
+     */
+    let leadIn = '';
+
     pieces.forEach((text, index) => {
       const body = text.length > MAX_CHUNK_CHARS ? text.slice(0, MAX_CHUNK_CHARS) : text;
+
+      const prose = body.replace(/```[\s\S]*?```/g, ' ').trim();
+      const mostlyCode = prose.length < body.length * 0.4;
+      const context = mostlyCode && leadIn ? `${leadIn}\n\n` : '';
+
+      // Remember this piece's prose for the next one, capped so it cannot dominate.
+      if (prose.length > 40) leadIn = prose.slice(-CONTEXT_CHARS);
 
       chunks.push({
         id: `${page.path}#${index + 1}`,
@@ -124,7 +152,7 @@ function buildChunks(pages) {
          * the UI still show the passage as written - the title would otherwise be
          * repeated at the top of every excerpt.
          */
-        embedText: `${page.title}\n\n${body}`,
+        embedText: `${page.title}\n\n${context}${body}`,
       });
     });
   }
