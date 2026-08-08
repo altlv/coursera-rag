@@ -48,19 +48,23 @@ npm start                  # http://localhost:4200
 
 Open `http://localhost:4200`. The assistant is docked on the right and stays open as you browse.
 
-## Three questions worth trying
+## First look
 
-These cover the three behaviours a RAG system has to get right.
+Three questions that exercise the three outcomes, as a smoke test — **not** as the
+testing story. That lives in [Testing](#testing) and is a great deal larger.
 
-| Ask this | Behaviour | What you should see |
+| Ask this | Outcome | What you should see |
 | --- | --- | --- |
-| `what is Angular?` | **Match** | A grounded answer citing `/overview` |
-| `got milk?` | **No match** | An honest refusal. Zero passages clear the similarity floor, so the model is **never called** — the refusal is free and cannot be a guess |
-| `what is CSS?` | **Partial match** | Passages *do* clear the floor (the styling pages discuss CSS), but none define the acronym — so it says so and cites nothing |
+| `what is Angular?` | **answered** | A grounded answer citing `/overview` |
+| `got milk?` | **refused** | Zero passages clear the similarity floor, so the model is **never called** — the refusal is free and cannot be a guess |
+| `what is CSS?` | **partial** | Passages *do* clear the floor (the styling pages discuss CSS), but none define the acronym — so it says so and cites nothing |
 
-The third is the interesting one: it exercises the second line of defence. [Why that matters →](LEARN-RAG.md#three-outcomes-not-two)
+The third is the interesting one: no similarity threshold can separate it from a
+real question, so the generation layer has to. [Why →](LEARN-RAG.md#three-outcomes-not-two)
 
-Answers **stream** as they are written, with a **Stop** control to abandon one mid-flight. The conversation survives a page refresh, and **New topic** stops earlier questions being used as context for the next one without wiping the transcript — a distinct thing from **Clear**, because follow-ups are *resolved against* history and that is only helpful while the subject is the same.
+Answers **stream** as they are written, with a **Stop** control to abandon one mid-flight, and the conversation survives a page refresh. **New topic** clears it and starts fresh.
+
+A **Voice** switcher changes how answers are written — Tutor, LOLcatz or Yoda. Presentation only: the grounding rules are byte-identical across every voice, which a test enforces. The silly ones are not just a joke — they make it visible that the facts, citations and refusals are the same whether the assistant sounds like a reference manual or a cat. [The null result that produced them →](LEARN-RAG.md#personality-and-the-null-result-that-was-my-fault)
 
 Each answer shows the model that wrote it, a confidence badge, a thumbs up/down, and a collapsible **"How this answer was built"** with every passage, its score, the rank each retrieval method gave it, and the token count.
 
@@ -80,8 +84,8 @@ Questions are logged to `data/` (gitignored) so `npm run questions` can show wha
 | `npm start` | Frontend dev server | — |
 | `npm run start-backend` | Fastify backend on :3000 | — |
 | `npm test` | Angular component tests | — |
-| `npm run test:unit` | Pipeline suites — chunking, vectors, prompts, retry, memory | free, offline |
-| `npm run test:retrieval` | Golden-set retrieval quality | free, offline |
+| `npm run test:unit` | Every pipeline suite in `test/unit/` — see [Testing](#testing) | free, offline |
+| `npm run test:retrieval` | Golden-set retrieval quality, from cached vectors | free, offline |
 | `npm run eval` | Score both eval sets; `--compare=DIR` A/Bs two stores | free, offline |
 | `npm run download-docs` | Re-scrape the corpus | free |
 | `npm run build-embeddings` | Rebuild the index | ~$0.01 |
@@ -103,6 +107,19 @@ Two independent limits, because they bound different things — a rate limit cap
 | `RATE_LIMIT_PER_MINUTE` | `20` | Token bucket per caller on `/api/chat`. `0` disables |
 | `RATE_LIMIT_BURST` | `5` | How many can arrive at once before throttling |
 | `DAILY_SPEND_USD` | unset | Daily ceiling, enforced before each call. Unset or `0` disables |
+
+## Retrieval and voice
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `RERANK` | on | A second pass that reorders retrieved passages. `off` reverts to plain vector ordering |
+| `RERANK_CANDIDATES` | `10` | How many passages to rerank. Measured: recall is already 100% at 10 on this corpus, and widening only adds noise |
+| `RERANK_PROVIDER` | `openai` | Pinned separately from `CHAT_PROVIDER`, because reranking changes **retrieval** |
+| `ANSWER_STYLE` | `tutor` | How answers are written — `tutor`, `lolcat`, `yoda`, or `concise` (the measurement baseline, not offered in the UI) |
+
+Reranking took held-out hit@1 from 73% to 87%. The candidate count came from a
+free offline measurement rather than the conventional advice, which would have
+been strictly worse here. [How →](LEARN-RAG.md#reranking-measure-the-ceiling-before-you-build-the-thing)
 
 Exceeding them returns `429` (slow down, retry) or `402` (budget gone, do not retry) — deliberately different, because they call for different client behaviour. Both are reported on `/api/providers` before they fire, and the spend ledger persists to `data/spend.json` so a restart cannot reset it.
 
@@ -152,15 +169,51 @@ Known gaps are listed in [LEARN-RAG.md](LEARN-RAG.md#what-is-still-wrong), and l
 
 ## Testing
 
-162 tests, all free and offline.
+**[TESTING-A-RAG.md](TESTING-A-RAG.md) is the real document here** — the reasoning,
+the techniques, and the failures that produced them. This section says only where
+the tests live and what ground each part covers.
 
-```bash
-npm run test:unit        # chunking, vector maths, prompts, citations, retry, memory
-npm run test:retrieval   # golden set
-npm test                 # Angular components
-```
+Deliberately no test count: the last one in this file said 162 and was wrong
+within days. Counts rot; structure does not.
 
-CI runs all of it plus a production build on every push. One caveat stated deliberately: the vector store is gitignored (building it needs a key), so **on CI the retrieval suites skip their assertions** — a green build does not mean hit@3 was verified. The workflow emits a warning saying so.
+### Where they are
+
+| Location | Ground covered | Runs |
+| --- | --- | --- |
+| `test/unit/` | Pure logic, one suite per concern — chunking, vectors, hybrid fusion, prompts, retries, memory, injection, sanitising, attribution, code samples, answer quality and styles, rerank, question log, rate limit, spend ceiling, sources, streaming | free, offline |
+| `test/retrieval.test.mjs` | Golden set: hit@k and MRR against cached question vectors | free, offline |
+| `test/holdout.test.mjs` | Held-out set, plus the regression floors and an assertion that it stays *harder* than the golden set | free, offline |
+| `test/golden-set.mjs`, `holdout-set.mjs`, `answer-rubrics.mjs` | The data — questions, acceptable pages, and what a correct answer must say | — |
+| `src/app/*.spec.ts` | Frontend: conversation persistence and store wiring | free, offline |
+
+Everything above is free and offline. Question vectors are cached and committed,
+so retrieval quality is measured with dot products rather than API calls.
+
+### What costs money, and is therefore a script
+
+Measurement that needs a real model cannot gate a commit, so it lives in
+`scripts/` and is run deliberately:
+
+| Script | Question it answers |
+| --- | --- |
+| `npm run eval` | Did retrieval get better or worse? `--compare=DIR` A/Bs two stores |
+| `npm run eval:answers` | Was the *answer* right — status, must-mention, citations |
+| `npm run eval:rerank` | Is reranking earning its place? |
+| `npm run check-attribution` | Do cited passages contain what they are credited with? |
+| `npm run compare-providers` | Same passages, different writers |
+
+### Two things worth knowing before trusting a green build
+
+**The vector store is gitignored**, because building it needs a key. On CI the
+retrieval suites therefore **skip their assertions** — a green build does not mean
+hit@3 was verified, and the workflow prints a warning saying so.
+
+**Whole categories of defect have never been caught by a test here.** Every
+response-hygiene and UI bug in this project was found by a human looking at a
+screen — duplicate source links, a composer below the fold, a header overlapping
+itself, answers vanishing on reload. That is not an argument for more UI tests so
+much as for knowing which categories a suite structurally cannot reach.
+[The category map, and where this project is still weak →](TESTING-A-RAG.md#the-category-map-where-the-failures-actually-live)
 
 ## Project layout
 
