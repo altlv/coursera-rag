@@ -32,20 +32,58 @@ describe('serialise', () => {
     expect(stored.provider).toBe('openai');
   });
 
-  it('drops error bubbles', () => {
+  it('drops a failed exchange whole - the error AND the question', () => {
     /*
-     * An error describes something that went wrong in a PREVIOUS session - a
-     * provider being down, a rate limit. Restoring it presents a stale failure as
-     * though it just happened.
+     * Dropping only the error looked right and read as DATA LOSS: a reload showed
+     * questions with no answers under them, which a user describes as "the
+     * assistant's responses disappeared". Restoring the error instead is worse -
+     * it presents a previous session's failure as current.
      */
     const messages: ChatMessage[] = [
-      user('a'),
-      { role: 'assistant', text: 'Provider unavailable', isError: true },
-      reply('b'),
+      user('answered question'),
+      reply('a real answer'),
+      user('question that failed'),
+      { role: 'assistant', text: 'Request failed (502)', isError: true },
     ];
     const stored = serialise(messages, 0, null);
+
+    expect(stored.messages.map((m) => m.text)).toEqual(['answered question', 'a real answer']);
+  });
+
+  it('never leaves a question with no answer under it', () => {
+    // The property that matters, stated directly: every restored user message is
+    // followed by an assistant message.
+    const messages: ChatMessage[] = [
+      user('q1'),
+      reply('a1'),
+      user('q2'),
+      { role: 'assistant', text: 'failed', isError: true },
+    ];
+    const restored = serialise(messages, 0, null).messages;
+
+    for (let i = 0; i < restored.length; i += 1) {
+      if (restored[i].role === 'user') {
+        expect(restored[i + 1]?.role, `"${restored[i].text}" has no answer`).toBe('assistant');
+      }
+    }
+  });
+
+  it('drops an answer that was still streaming when the page closed', () => {
+    // Half an answer with no ending is not worth restoring, and the question
+    // that produced it goes with it.
+    const messages: ChatMessage[] = [
+      user('q1'),
+      reply('a1'),
+      user('q2'),
+      { role: 'assistant', text: 'partial ans', streaming: true },
+    ];
+    const stored = serialise(messages, 0, null);
+    expect(stored.messages.map((m) => m.text)).toEqual(['q1', 'a1']);
+  });
+
+  it('keeps a completed answer, which is the whole point', () => {
+    const stored = serialise([user('q'), reply('a')], 0, null);
     expect(stored.messages).toHaveLength(2);
-    expect(stored.messages.some((m) => m.isError)).toBe(false);
   });
 
   it('caps the transcript, keeping the most recent messages', () => {

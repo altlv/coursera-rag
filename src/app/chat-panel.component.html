@@ -217,14 +217,12 @@
         </article>
       }
 
-      @if (store.isLoading()) {
-        <article class="bubble assistant pending">
-          <p class="bubble-role">Assistant</p>
-          <p class="bubble-text typing">
-            <span></span><span></span><span></span>
-          </p>
-        </article>
-      }
+      <!--
+        No separate typing indicator. Since answers stream, the assistant bubble is
+        created empty the moment a question is sent and carries a blinking caret
+        until text arrives - so a second pending bubble below it showed two
+        in-progress states for one request.
+      -->
 
       @if (!store.hasConversation() && !store.isLoading()) {
         <div class="examples">

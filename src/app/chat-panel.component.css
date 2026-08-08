@@ -232,6 +232,16 @@
   overscroll-behavior: contain; /* don't chain scrolling to the page behind */
   padding: var(--space-4);
   display: grid;
+  /*
+   * minmax(0, 1fr), not the implicit `auto`.
+   *
+   * An implicit grid column is auto-sized, which means it grows to fit its widest
+   * content - so one long unbreakable token (a URL, a long line of code, a source
+   * path with nowrap) made the column wider than the rail and pushed the whole
+   * conversation sideways. minmax(0, ...) lets the column be narrower than its
+   * content, which is what makes the wrapping rules below actually apply.
+   */
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-3);
   align-content: start;
   scrollbar-width: thin;
@@ -242,6 +252,13 @@
   border-radius: var(--radius-inner);
   border: 1px solid var(--color-border);
   background: var(--color-page);
+  /*
+   * A grid item's automatic minimum size is its content, so without this a wide
+   * bubble refuses to shrink even when the column can. Belt and braces with the
+   * minmax() above - between them, nothing in a message can widen the rail.
+   */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .bubble.user {
@@ -674,7 +691,18 @@
 
   .rail {
     width: min(92vw, 380px);
-    height: min(70vh, 560px);
+    /*
+     * Was min(70vh, 560px). On a short window that left a panel too small to read
+     * a cited answer in, while on a tall one it stopped well short of the space
+     * available. Bounding it to the viewport instead keeps it usable at both ends.
+     */
+    height: min(78vh, 640px);
+    /*
+     * --space-6, not --space-8: the scale stops at 6. An undefined custom
+     * property makes the whole declaration invalid at computed-value time, so the
+     * max-height would simply not exist - a silent failure that builds cleanly.
+     */
+    max-height: calc(100vh - 2 * var(--space-6));
   }
 
   .rail-reopen {
@@ -714,5 +742,35 @@
 @media (prefers-reduced-motion: reduce) {
   .stream-cursor {
     animation: none;
+  }
+}
+
+/*
+ * Phone widths: a floating card wastes margin it cannot spare, so the rail
+ * becomes a bottom sheet spanning the full width.
+ */
+@media (max-width: 560px) {
+  :host {
+    right: var(--space-2);
+    left: var(--space-2);
+    bottom: var(--space-2);
+  }
+
+  .rail {
+    width: auto;
+    height: min(82vh, 100vh - 2 * var(--space-2));
+  }
+
+  /* The subtitle is the first thing to go when the header runs out of room. */
+  .rail-subtitle {
+    display: none;
+  }
+
+  /*
+   * The provider name alone, without "Default (...)" padding it out. The header
+   * carries five controls on a 320px screen and this is the flexible one.
+   */
+  .provider-select {
+    max-width: 6rem;
   }
 }

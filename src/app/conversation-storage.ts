@@ -59,7 +59,24 @@ export function serialise(
   provider: string | null,
   now = Date.now(),
 ): StoredConversation {
-  const keep = messages.filter((message) => !message.isError);
+  /*
+   * Drop failed exchanges WHOLE - the error and the question that caused it.
+   *
+   * Dropping only the error looked right and read as data loss: a reload showed
+   * the questions with no answers under them, which is exactly what a user
+   * describes as "the assistant's responses disappeared". Restoring the error
+   * instead is worse, since it presents a previous session's failure as current.
+   *
+   * So a failed attempt leaves no trace and the transcript restores to the last
+   * complete exchange. An in-flight answer is dropped for the same reason: it was
+   * never finished, and half an answer with no ending is not worth restoring.
+   */
+  const keep = messages.filter((message, i) => {
+    if (message.isError || message.streaming) return false;
+    const next = messages[i + 1];
+    const failed = next && next.role === 'assistant' && (next.isError || next.streaming);
+    return !(message.role === 'user' && failed);
+  });
 
   /*
    * Trim from the FRONT, keeping the most recent. The break index has to move with

@@ -19,6 +19,19 @@ class StubChatService {
   providers = async () => ({ available: [], unavailable: [], active: 'openai', reason: '' });
   rate = async () => {};
   ask = async () => ({ status: 'answered', answer: 'ok' });
+
+  /*
+   * A real stream, not a stub that throws. The first version of this class had no
+   * askStream at all, so every send() fell into the error path - the tests passed
+   * while exercising nothing but the catch block.
+   */
+  async *askStream() {
+    yield { type: 'start', provider: 'openai', providerLabel: 'OpenAI', model: 'stub' };
+    yield { type: 'delta', text: 'A stubbed ' };
+    yield { type: 'delta', text: 'answer.' };
+    yield { type: 'final', status: 'answered', answer: 'A stubbed answer.', citations: [1] };
+    yield { type: 'meta', questionId: 'q-1', sources: [], retrieved: [] };
+  }
 }
 
 /** A localStorage that behaves, and one that does not. */
@@ -88,6 +101,46 @@ describe('ChatStore context break', () => {
 
     store.messages.update((list) => [...list, { role: 'user', text: 'second' }]);
     expect(store.hasContextBreak()).toBe(true);
+  });
+
+  it('can still ask a question after Clear', async () => {
+    /*
+     * Reported as "it breaks after I use Clear". The 502s in that report turned
+     * out to be a backend that was not running - but the claim deserves a
+     * standing test rather than a one-off check, because reset() mutates the same
+     * state send() reads.
+     */
+    const store = makeStore();
+    store.messages.update((list) => [...list, { role: 'user', text: 'first' }]);
+    store.reset();
+
+    await store.send('a question after clearing');
+
+    const texts = store.messages().map((m) => m.text);
+    expect(texts).toContain('a question after clearing');
+    // The answer arrived, so this really did exercise the streaming path.
+    expect(texts).toContain('A stubbed answer.');
+    expect(store.messages().some((m) => m.isError)).toBe(false);
+    expect(store.isLoading()).toBe(false);
+  });
+
+  it('leaves no message stuck in the streaming state', () => {
+    // A bubble left with streaming:true keeps a caret blinking forever and is
+    // dropped by persistence, so the answer would vanish on reload.
+    const store = makeStore();
+    return store.send('anything').then(() => {
+      expect(store.messages().some((m) => m.streaming)).toBe(false);
+    });
+  });
+
+  it('leaves nothing in flight after Clear', () => {
+    // A conversation cleared mid-answer must not leave the composer disabled or
+    // a stream writing into a message that no longer exists.
+    const store = makeStore();
+    store.isLoading.set(true);
+    store.reset();
+    store.stop();
+    expect(store.messages()).toHaveLength(1);
   });
 
   it('clears the break when the conversation is reset', () => {
