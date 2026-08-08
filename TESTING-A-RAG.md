@@ -50,6 +50,67 @@ intact — nothing more.
 
 ---
 
+## The category map: where the failures actually live
+
+The four layers above describe test *mechanics*. This describes *domains* — what
+can go wrong in an AI application, so you can ask "what covers this?" of each one
+rather than testing whatever comes to mind.
+
+⚙️ The status column is deliberately part of the table. A category with no entry
+is not a category that is fine; it is one nobody has looked at.
+
+| # | Category | The question it asks | How it is caught |
+| --- | --- | --- | --- |
+| 1 | **Corpus integrity** | Did we get the documents, all of them, without junk? | Counts and spot checks. 📐 A scraper that "worked" captured 23 of 114 pages |
+| 2 | **Transformation correctness** | Chunking, normalisation, splitting | Unit tests. Fully deterministic, so there is no excuse |
+| 3 | **Representation integrity** | Are the vectors comparable to each other? | Guards that *throw*. 📐 Mismatched spaces return plausible numbers and no error |
+| 4 | **Retrieval quality** | Does the right document rank? | Golden + held-out sets, hit@k, MRR, recall ceiling |
+| 5 | **Grounding** | Does it answer only from what it was given? | Contract tests with a fake model; refusal without calling the LLM |
+| 6 | **Answer quality** | Is the answer right, complete, correctly hedged? | Status accuracy + a must-mention rubric, scored offline |
+| 7 | **Attribution** | Do the citations point where they claim? | Range check, then attribution on identifiers |
+| 8 | **Adversarial** | What happens when the *documents* are hostile? | Injection payloads through the real pipeline, on the weakest model |
+| 9 | **Cost & abuse** | Can someone drain the account? | Rate limit, spend ceiling, both with injected clocks |
+| 10 | **Response hygiene** | Is the payload itself well-formed? | Dedup, ordering, no broken links — see below |
+| 11 | **UI/UX consistency** | Does the interface survive real content? | Mostly by looking. See below, and note the pattern |
+| 12 | **State & persistence** | Does it survive reload, and forget when asked? | Pure serialise/deserialise tests + wiring tests |
+| 13 | **Observability** | Can you find out what actually happened? | Question log, ratings, per-answer traces |
+| 14 | **Instrument integrity** | Is the *measurement* the broken thing? | The meta-category — an entire section below |
+
+### The pattern in who found what
+
+📐 Sorting this project's real defects by **how they were discovered** produces an
+uncomfortably clean split:
+
+| Found by | Categories |
+| --- | --- |
+| **A test or a measurement** | 1–9, 12 — chunking, embedding spaces, MMR regression, the code-fencing regression, an impossible threshold, a generic-type regex bug, two bad rubrics, a misattribution, injection on a weak model |
+| **A human looking at the screen** | 10, 11 — every single one. Duplicate source links, a composer below the fold, a header overlapping itself, a panel off-screen, two spinners for one request, answers vanishing on reload |
+
+⚙️ **Nothing in the last two rows was ever caught by a test**, in a project with
+400+ of them. That is not an argument for more UI tests so much as an argument for
+knowing which categories your suite structurally cannot reach — and budgeting
+human attention there instead of assuming green means good.
+
+### Where this project is still weak
+
+Stated so the gaps are visible rather than implied:
+
+| Category | Gap |
+| --- | --- |
+| Answer quality (6) | The rubric checks *wrong* and *incomplete*, never *unclear* or *badly ordered* |
+| Attribution (7) | API names only. A misattributed **prose** claim passes |
+| Adversarial (8) | Injection only. No test for a corpus page that is simply **wrong**, and retrieval cannot tell the difference |
+| Cost (9) | Both controls bound aggregates; a single enormous request is unbounded |
+| UI/UX (11) | No automated coverage at all. Every defect so far came from a screenshot |
+| Instrument (14) | Guards exist per-case, not as a habit — several were added only after being burned |
+
+⚙️ The most transferable part of this table is the last column existing at all. It
+is easy to write a testing guide that lists what you did; the useful version says
+what you did **not**, so a reader can tell the difference between "covered" and
+"not thought about".
+
+---
+
 ## Making the retrieval suite free and offline
 
 Searching requires embedding the *question*, which is normally an API call. That
@@ -654,19 +715,26 @@ non-streaming path retries, assert that the streaming one does **not**.
   and take complete frames from the front; parsing whatever arrived is the classic
   bug. Verify against a real stream and count: 📐 158 frames, zero unparseable.
 
-## A correct pipeline can still produce wrong output
+## Beyond the pipeline: two layers nothing above covers
 
-⚙️ Every test so far checks the *pipeline*. None of them looks at what the user
-ends up seeing, and those are different things — presentation has requirements of
-its own that no upstream assertion covers.
+⚙️ Every test so far checks the *pipeline*. None looks at the payload the pipeline
+emits, or at what the user finally sees — and those are three different things
+with three different failure modes.
 
-📐 Two bugs found by a user in one screenshot, with a green suite behind them:
+📐 A single user screenshot produced one bug from each of the layers below, with a
+fully green suite behind them. **A correct pipeline can still produce a wrong
+answer object, and a correct answer object can still render wrongly.**
 
-**The same source listed twice.** Retrieval works in **passages**; a reader thinks
-in **pages**. With `maxPerPage: 2`, two passages from one document is a normal and
-desirable result — and mapping them straight to links printed the same page twice.
-Nothing was broken. Retrieval behaved exactly as designed, and the derived output
-was still wrong.
+### Response hygiene
+
+⚙️ Properties of the response payload itself, independent of any UI. Cheap to
+assert, server-side, no browser — and easy to skip precisely because each one
+looks too obvious to be worth a test.
+
+📐 The one that shipped: **the same page listed twice in the sources.** Retrieval
+works in *passages*; a reader thinks in *pages*. With `maxPerPage: 2`, two passages
+from one document is a normal and desirable result — and mapping them straight to
+links printed the same document twice. Nothing upstream was broken.
 
 ```python
 def test_sources_list_one_entry_per_page_not_per_passage():
@@ -674,19 +742,32 @@ def test_sources_list_one_entry_per_page_not_per_passage():
     assert [s.path for s in sources] == ["/guide/di", "/guide/di/providers"]
 ```
 
-⚙️ The general shape: **wherever you collapse a technical unit into a
+The hygiene properties worth pinning for a RAG response:
+
+| Property | Failure it prevents |
+| --- | --- |
+| Sources deduplicated by page | The same document listed two or three times |
+| Order preserved from ranking | Re-sorting away the relevance order you paid a reranker for |
+| No entry with a missing path or title | A link to `/docs?path=undefined` |
+| A refusal carries no sources | Offering citations for an answer you declined to give |
+| Every citation index resolves to a supplied passage | Numbers pointing at nothing |
+| Confidence present whenever status is `answered` | A badge that silently disappears |
+
+⚙️ The generalisation: **wherever you collapse a technical unit into a
 user-facing one, test the collapse.** Passages → pages, chunks → documents,
-matches → results. It is exactly the sort of transformation that looks too
-trivial to test.
+matches → results. That transformation is where the two mental models meet, and
+it is always more than the one-line `.map()` it looks like.
 
-**A panel whose own content broke its layout.** A long unbreakable token — a URL,
-a line of code — widened a grid column that was implicitly `auto`-sized, pushing
-the conversation sideways. The wrapping rules could never apply, because the
-column was never the constraint.
+### UI/UX consistency
 
-⚙️ RAG output is *hostile to layout* in a way ordinary copy is not: it contains
-code, file paths, long identifiers and URLs, none of which wrap at spaces. Feed
-your UI the nastiest passage in your corpus and look at it.
+⚙️ Whether the interface survives its own content. **RAG output is hostile to
+layout in a way ordinary copy is not** — it contains code, file paths, long
+identifiers and URLs, none of which wrap at spaces. Prose written by a human
+almost never breaks a container; a passage from your corpus routinely will.
+
+📐 What shipped: a long unbreakable token widened a grid column that was
+implicitly `auto`-sized, pushing the conversation sideways. The wrapping rules
+could never apply, because the column was never the constraint.
 
 ```python
 def test_longest_corpus_passage_has_a_wrappable_shape():
@@ -694,6 +775,22 @@ def test_longest_corpus_passage_has_a_wrappable_shape():
     worst = max(store["chunks"], key=lambda c: longest_unbroken_run(c["text"]))
     assert longest_unbroken_run(worst["text"]) < 80   # or make the CSS handle it
 ```
+
+Three more in this category, all found the same way — by looking at a real screen:
+
+- **Two indicators for one state.** Streaming made the answer bubble appear
+  immediately with a caret, while a separate "typing" bubble still rendered below
+  it. Two in-progress states for one request. Adding a feature can make an
+  existing element redundant rather than wrong.
+- **Controls competing for a row.** A title, a select and three buttons across a
+  380px panel: the title wrapped and the select overlapped it.
+- **A fixed width that could not give way.** A hard-coded panel width meant the
+  layout overflowed the viewport rather than shrinking.
+
+⚙️ The honest note: these are the hardest to catch automatically and the fastest
+to catch by opening the thing. **Budget for looking at it** — at your narrowest
+supported width, with your longest real answer, on a page that already has
+content. A screenshot from a user found four of these in one pass.
 
 ### A breakpoint that cannot fire is the same as no breakpoint
 
@@ -1092,13 +1189,19 @@ def store():
 
 ## Checklist
 
-Before you believe your RAG works:
+Before you believe your RAG works. Grouped by the category map above, so a gap
+here points at a domain rather than a stray idea.
 
-**Structure**
+**Structure** (prerequisite for everything else)
 - [ ] Pure logic is importable — not trapped inside route handlers
 - [ ] The model is injected, so generation is testable without the network
 
-**Retrieval**
+**Corpus, transformation, representation** (1-3)
+- [ ] Page count printed and eyeballed against what you expect
+- [ ] Chunk sizes asserted against the configured maximum
+- [ ] Index records its model and dimensions, and a mismatch **throws**
+
+**Retrieval** (4)
 - [ ] 15 golden questions with acceptable page *sets*
 - [ ] 15 held-out questions, **never** used for tuning
 - [ ] Question vectors cached and committed; suite runs free and offline
@@ -1109,7 +1212,7 @@ Before you believe your RAG works:
 - [ ] Floors set **below** current performance
 - [ ] An assertion that the held-out set stays harder than the golden set
 
-**Generation**
+**Grounding and attribution** (5, 7)
 - [ ] Zero chunks → refusal, and the model is **not called** (asserted)
 - [ ] Out-of-range citations stripped
 - [ ] A `partial` status distinct from a refusal
@@ -1117,21 +1220,40 @@ Before you believe your RAG works:
 - [ ] Injection tested against the **weakest** model you support
 - [ ] No test asserts the wording of an answer
 
-**Answer quality**
+**Answer quality** (6)
 - [ ] Status accuracy measured - answer / refuse / hedge, per question
 - [ ] A must-mention rubric per answerable question, written from the corpus
 - [ ] Every required term tested to exist in the corpus, and not be rare
 - [ ] Scoring conditioned on whether retrieval actually delivered
 - [ ] Repeats averaged, with "always fails" separated from "unstable"
 
-**Instrumentation**
+**Cost and abuse** (9)
+- [ ] Rate limit and spend ceiling tested with an **injected clock**, no real sleeps
+- [ ] An unknown model priced at your most expensive rate, never zero
+- [ ] The ceiling checked **before** the call, and persisted across restart
+
+**Response hygiene** (10)
+- [ ] Sources deduplicated to one entry per document
+- [ ] Ranking order preserved through every transformation
+- [ ] No entry with a missing path, and a refusal carries no sources
+
+**UI/UX consistency** (11)
+- [ ] The longest, ugliest passage in your corpus rendered and looked at
+- [ ] Checked at your narrowest supported width, with a long answer on screen
+- [ ] One in-progress indicator per request, not two
+
+**State** (12)
+- [ ] Restore tested against corrupt, absent and wrong-version storage
+- [ ] A restored transcript never shows a question with no answer
+
+**Instrumentation** (14)
 - [ ] Every check reports how much it examined, not only what it found
 - [ ] Wrong argument types raise; empty results stay a legitimate answer
 - [ ] You have broken the code on purpose and watched the suite go red
 - [ ] A/B comparison exists, reporting per-question rank changes
 - [ ] Rejected experiments are recorded, with their numbers
 
-**Reality**
+**Reality** (13)
 - [ ] Thumbs up/down on real answers
 - [ ] Questions logged append-only, secrets redacted, never deduplicated at write time
 - [ ] Pages that are never retrieved are visible somewhere
