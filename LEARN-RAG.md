@@ -319,6 +319,38 @@ The system prompt says: answer **only** from these passages, cite them as `[1]`,
 
 It signals that with an explicit `NO_ANSWER_IN_DOCS` sentinel. The tempting alternative — "it cited nothing, so it must have failed" — breaks the moment a model answers correctly without citing.
 
+### Personality, and why grounding wins
+
+A fair observation from a user: the answers read like citations from the documentation rather than replies to a question — *"a glorified search box"*. That is not an accident. `Answer ONLY using the numbered context passages` frames the task as extraction, and it was the price of everything else in this file.
+
+So three answer styles were added — `concise`, `explanatory`, `tutor` — with the **grounding rules identical across all three**, byte for byte, enforced by a test. A style may change how an answer is organised and how it addresses the reader; it may not change what counts as a supported claim, when to refuse, or how to cite.
+
+**It barely worked, and the reason is the interesting part.**
+
+| Variable tried | Result |
+| --- | --- |
+| Three different style prompts | Answers near-identical |
+| Style rules *before* vs *after* the grounding rules | No change |
+| Temperature 0.2 vs 0.7 | No change; 10–12 words still lifted verbatim |
+| `gpt-4o-mini` vs `llama-3.3-70b` | Byte-identical between styles |
+
+Two things explain it, and only the second is about the design.
+
+**For a definitional question, the extractive answer is the correct answer.** The top passage for *"what is dependency injection?"* opens: *"Dependency Injection (DI) is a design pattern you use to organize and share code across your application…"* — the document's first sentence already **is** the answer. Every style converged on it because there was nothing better to converge on. Ask a *procedural* question and the answers become genuinely synthesised: *"To share one instance across only part of the app, you provide the service in the metadata of a specific component"* appears nowhere in the corpus in that form.
+
+⚙️ **The deeper reason: personality and strict grounding are in direct tension, and grounding wins by construction.** The `tutor` style asks for what problem the feature solves, what it replaces, what a newcomer gets wrong. The grounding rules say answer only from the passages and never invent. When the documentation does not contain an analogy, the model correctly declines to supply one — the style is asking for material the constraints forbid.
+
+**You cannot prompt your way to "explain it in a way the docs don't" while also saying "only say what the docs say."** That is not a tuning problem. It is the trade that makes the assistant trustworthy.
+
+The styles were kept anyway: they cost nothing, grounding is provably unchanged (status accuracy 100%, citation coverage 100%, refusal purity 100% in both `concise` and `explanatory`; must-mention 96% → 93%, one question, within noise), and they differentiate more on procedural questions than definitional ones. But the honest label is **a null result on the thing it was built for**.
+
+The real options, if the extractive voice matters more than the constraint:
+
+- **Let the model add framing it does not cite** — an analogy or a "the problem this solves" paragraph, explicitly marked as its own rather than the documentation's. This reintroduces exactly the hallucination risk the citation checks exist to catch, in the one place a reader is least likely to verify.
+- **Put the pedagogy in the corpus.** If the answer should include the problem a feature solves, that belongs in a document, where it can be cited and checked.
+
+The second is the one consistent with everything else here.
+
 ### The hallucination guard
 
 Any citation pointing outside the supplied range is stripped. A model citing `[7]` when given 4 passages is inventing a source, and **an unchecked citation is worse than none, because it looks verified**.

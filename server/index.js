@@ -20,6 +20,7 @@ const { createLlm, listAvailable, resolveProvider } = require('./llm-providers')
 const { createHealthTracker } = require('./provider-health');
 const { createQuestionLog } = require('./question-log');
 const { rerank } = require('./rerank');
+const { resolveStyle, listStyles, DEFAULT_STYLE } = require('./answer-styles');
 const { createRateLimiter } = require('./rate-limit');
 const { createSpendLimiter } = require('./spend-limit');
 const fsSync = require('fs');
@@ -660,6 +661,11 @@ app.get('/api/providers', async () => {
         note: 'Cost is estimated from a static price table. Token counts are exact.',
       };
     })(),
+    /*
+     * Offered to the UI so the style can be switched without a restart. Purely
+     * presentational: no style changes what the assistant is allowed to claim.
+     */
+    styles: { available: listStyles(), active: ANSWER_STYLE },
     rateLimit: {
       enabled: RATE_LIMIT_PER_MINUTE > 0,
       perMinute: RATE_LIMIT_PER_MINUTE,
@@ -797,6 +803,14 @@ function boundHistory(body) {
  * RERANK=off disables it. The cost is one extra model call per question - about
  * $0.0002, and a delay before the first token of a streamed answer.
  */
+/*
+ * How answers are WRITTEN. Presentation only - the grounding rules are identical
+ * across every style and a test enforces that, because a friendlier prompt that
+ * quietly paraphrases further from its sources produces answers that feel better
+ * and are less true.
+ */
+const ANSWER_STYLE = resolveStyle(process.env.ANSWER_STYLE ?? DEFAULT_STYLE);
+
 const RERANK_ENABLED = process.env.RERANK !== 'off';
 const RERANK_CANDIDATES = Number(process.env.RERANK_CANDIDATES ?? 10);
 
@@ -919,6 +933,13 @@ app.post('/api/chat', async (request, reply) => {
   // A per-request override, so providers can be compared without a restart:
   //   curl ... -d '{"question":"...","provider":"gemini"}'
   const requestedProvider = typeof request.body?.provider === 'string' ? request.body.provider : undefined;
+  /*
+   * Per-request style override, resolved through the same allowlist as the env
+   * setting - so an unknown value falls back rather than reaching the prompt.
+   */
+  const style = resolveStyle(
+    typeof request.body?.style === 'string' ? request.body.style : ANSWER_STYLE,
+  );
 
   if (!chatProvider.name) {
     status = results.length > 0 ? 'partial' : 'refused';
@@ -939,6 +960,7 @@ app.post('/api/chat', async (request, reply) => {
         llm,
         history,
         provider: llm.provider,
+        style,
         knownIdentifiers:
           UNGROUNDED_CHECK_ENABLED && vectorStore ? getCorpusIdentifiers(vectorStore) : null,
         canonicalSpellings: vectorStore ? getCanonicalSpellings(vectorStore) : null,
@@ -1151,6 +1173,9 @@ app.post('/api/chat/stream', async (request, reply) => {
 
   const requestedProvider =
     typeof request.body?.provider === 'string' ? request.body.provider : undefined;
+  const style = resolveStyle(
+    typeof request.body?.style === 'string' ? request.body.style : ANSWER_STYLE,
+  );
   const llm = createLlm({ provider: requestedProvider });
 
   // Sent up front so the UI can label the bubble before any text arrives.
@@ -1164,6 +1189,7 @@ app.post('/api/chat/stream', async (request, reply) => {
       llm,
       history,
       provider: llm.provider,
+      style,
       knownIdentifiers:
         UNGROUNDED_CHECK_ENABLED && vectorStore ? getCorpusIdentifiers(vectorStore) : null,
       canonicalSpellings: vectorStore ? getCanonicalSpellings(vectorStore) : null,

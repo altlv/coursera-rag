@@ -46,6 +46,8 @@ const args = process.argv.slice(2);
 const RUN_ALL = args.includes('--all');
 const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
 const VERBOSE = args.includes('--verbose');
+/** Which answer STYLE to score. Presentation should not move grounding - measure that. */
+const STYLE = (args.find((a) => a.startsWith('--style=')) || '').split('=')[1];
 /*
  * Generation is stochastic, so a single pass is a noisy estimate. Measured here:
  * "what are reactive forms?" failed its rubric on one run and passed on the next,
@@ -159,6 +161,7 @@ async function run() {
           question: q.question,
           chunks: results_.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
           llm,
+          style: STYLE,
           canonicalSpellings,
         });
       } catch (error) {
