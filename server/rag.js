@@ -865,7 +865,7 @@ function buildPrompt(question, chunks, { history = [], provider, style } = {}) {
 
   parts.push(`---\n\nQuestion: ${question}`);
 
-  return { system: SYSTEM_PROMPT, user: parts.join('\n\n') };
+  return { system: buildSystemPrompt(style, NO_ANSWER_SENTINEL), user: parts.join('\n\n') };
 }
 
 /** Every distinct [n] referenced in the answer text. */

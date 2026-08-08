@@ -61,3 +61,54 @@ describe('design tokens', () => {
     expect([...new Set(missing)]).toEqual([]);
   });
 });
+
+/*
+ * Rules that style nothing.
+ *
+ * Removing a feature usually means deleting markup and forgetting its CSS. The
+ * leftovers are harmless until someone reads them as documentation of a component
+ * that no longer exists - or, worse, renames a class and leaves the old rules
+ * silently applying to nothing while the new element goes unstyled. That happened
+ * here: a header was restructured, the new classes had no rules at all, and the
+ * panel rendered raw.
+ */
+describe('component styles match their templates', () => {
+  const pairs = fs
+    .readdirSync(APP_DIR)
+    .filter((f) => f.endsWith('.component.css'))
+    .map((cssFile) => {
+      const htmlFile = cssFile.replace(/\.css$/, '.html');
+      const htmlPath = path.join(APP_DIR, htmlFile);
+      return {
+        name: cssFile,
+        css: fs.readFileSync(path.join(APP_DIR, cssFile), 'utf8'),
+        html: fs.existsSync(htmlPath) ? fs.readFileSync(htmlPath, 'utf8') : null,
+      };
+    })
+    .filter((pair) => pair.html !== null);
+
+  it('finds component/template pairs to check', () => {
+    expect(pairs.length).toBeGreaterThan(0);
+  });
+
+  it('has no class rule without a matching element', () => {
+    const orphans = [];
+
+    for (const { name, css, html } of pairs) {
+      for (const match of css.matchAll(/^\.([a-z][a-z0-9-]*)/gm)) {
+        const cls = match[1];
+        /*
+         * Classes assembled at runtime - [class]="'confidence confidence-' + level"
+         * - never appear whole in the template, so a prefix match is the honest
+         * test for them.
+         */
+        if (html.includes(cls)) continue;
+        const prefix = cls.replace(/-[a-z0-9]+$/, '');
+        if (prefix !== cls && html.includes(prefix)) continue;
+        orphans.push(`${name}: .${cls}`);
+      }
+    }
+
+    expect([...new Set(orphans)]).toEqual([]);
+  });
+});

@@ -240,27 +240,6 @@
  * The context break. Reads as a divider rather than a message, because it is a
  * statement about the conversation rather than part of it.
  */
-.context-break {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-3) 0;
-  color: var(--color-text-subtle);
-  font-size: 0.72rem;
-  text-align: center;
-}
-
-.context-break::before,
-.context-break::after {
-  content: '';
-  flex: 1;
-  border-top: 1px dashed var(--color-border);
-}
-
-.context-break span {
-  flex: 0 1 auto;
-}
-
 /* ---------- Messages ---------- */
 
 .rail-scroll {
@@ -842,3 +821,67 @@
     display: none;
   }
 }
+
+/* ---------- Header rows ---------- */
+
+/*
+ * One labelled control per row beneath the title.
+ *
+ * Four short rows beat one crowded one: a title, two selects and three buttons
+ * could not share a 380px header - the title wrapped and a select landed on top of
+ * it. Each row is a <label>, so the visible caption actually labels its select
+ * rather than merely sitting beside it.
+ */
+.rail-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  cursor: pointer;
+}
+
+/*
+ * Fixed width, so "Model" and "Voice" align down the left edge and both selects
+ * begin at the same x. Ragged captions were what made the first attempt look
+ * unconsidered.
+ */
+.row-label {
+  flex: none;
+  width: 3.1rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-eyebrow);
+}
+
+/* Each select owns its row now, so it should use the width rather than truncate. */
+.rail-row .provider-select,
+.rail-row .style-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  padding: 0.2rem var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.rail-row select:hover,
+.rail-row select:focus-visible {
+  border-color: var(--color-brand-ring);
+  color: var(--color-brand-strong);
+}
+
+/* Row 4: the trust line, set slightly apart from the controls above it. */
+.rail-header .rail-subtitle {
+  grid-column: 1 / -1;
+  margin-top: 0.2rem;
+  min-width: 0;
+}
+

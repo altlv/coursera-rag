@@ -51,34 +51,77 @@ const refusalRule = (sentinel) =>
  * there is a baseline to measure the others against.
  */
 const STYLES = {
+  /*
+   * Not offered in the UI. Kept because it is the BASELINE every other style is
+   * measured against - `npm run eval:answers -- --style=concise` is what says
+   * whether a voice cost anything - and because SYSTEM_PROMPT is built from it.
+   * Still reachable through ANSWER_STYLE or a request body.
+   */
   concise: {
+    hidden: true,
     label: 'Concise',
-    description: 'Short and factual, close to the documentation wording.',
+    description: 'Short and factual, close to the documentation wording. The measurement baseline.',
     rules: `- Prefer short, concrete explanations. Include a small code example when the context contains one.`,
   },
 
-  explanatory: {
-    label: 'Explanatory',
-    description: 'Leads with a direct answer, then explains why it works that way.',
-    rules: `- Open with a direct answer to the question in one or two sentences, in your own words. Do not open by restating the question or by defining a term the reader did not ask about.
-- Then explain how it works and why it is done that way. Prefer explaining a mechanism over quoting a definition.
-- Use the words the question used. If someone asks "how do I get a reference to a child", answer about getting a reference to a child.
-- Include a small code example when the context contains one, and say what the interesting line does.
-- Write to the person asking. "You" is fine; a lecture is not.`,
-  },
-
+  /*
+   * Every rule below is a BEHAVIOUR, not an adjective.
+   *
+   * The first version of these styles asked for "a direct answer", "short, concrete
+   * explanations", "write to the person asking" - and changed nothing at all,
+   * because a model already believes it is doing those things. Generic quality
+   * adjectives are no-ops.
+   *
+   * What proved they could work was an absurd control style, which transformed the
+   * voice completely while grounding held. The mechanism was never the problem; my
+   * instructions were. So each rule here names something checkable: a forbidden
+   * opening, a required grammatical person, a sentence budget.
+   */
   tutor: {
     label: 'Tutor',
-    description: 'Explains from first principles, with the problem the feature solves.',
-    rules: `- Open with a direct answer in one or two sentences, in your own words.
-- Then teach it: what problem this solves, what it replaces or improves on, and when someone would reach for it.
-- Where the context supports it, walk through a small example step by step, saying what each part does.
-- Point out the mistake a newcomer would plausibly make, but ONLY if the context actually mentions it. Never invent a pitfall.
-- Write to the person asking, plainly. No filler, no encouragement, no exclamation marks.`,
+    description: 'Starts from the problem the feature solves, then shows the fix.',
+    rules: `- Begin with the PROBLEM, not the feature. The first sentence describes the difficulty a reader would hit without this, and must not name the feature at all.
+- Only name the feature in the second sentence or later.
+- Address the reader as "you" throughout.
+- Then show the smallest example from the context that solves that problem, and say which part does the work.
+- If the context mentions a limitation, a caveat or a superseded alternative, end with it in one sentence. If it does not, end after the example - never invent a pitfall to sound thorough.
+- No encouragement, no exclamation marks, no "great question".`,
+  },
+
+  /*
+   * The novelty styles began as a POSITIVE CONTROL and earned a place by passing.
+   *
+   * lolcat existed to prove the mechanism could respond at all, after three
+   * sensible styles changed nothing. It transformed the voice completely while
+   * citations stayed present and in range - which is what showed the earlier null
+   * result was my instructions, not grounding overriding style.
+   *
+   * They are kept because they make a real property visible: the facts, the
+   * citations and the refusals are identical whether the assistant sounds like a
+   * reference manual or a cat. If a silly voice ever DID change what the assistant
+   * claims, that would be a grounding bug worth knowing about - so these double as
+   * a standing check that presentation and truth are actually separable here.
+   */
+  lolcat: {
+    label: 'LOLcatz',
+    description: 'Correct answers, terrible spelling. A control that proves style is separable.',
+    rules: `- Write the ENTIRE answer in lolcat / LOLspeak: deliberate misspellings, broken cat grammar, "i can haz", "ur", "srsly", "kthxbai".
+- Be enthusiastic and silly. You may refer to yourself as a cat.
+- The FACTS must still be exactly right, and every citation must still be correct. Misspell the words, never the meaning.
+- Do not misspell API names, code, or anything inside a code block - those must stay copy-pasteable and correct.`,
+  },
+
+  yoda: {
+    label: 'Yoda',
+    description: 'Object-subject-verb word order. Also a control.',
+    rules: `- Write in Yoda's inverted syntax: object first, then subject, then verb. "Provide the service in the component metadata, you must."
+- Keep sentences short. Occasional "hmm" or "yes" is fine.
+- The FACTS must still be exactly right, and every citation must still be correct. Invert the grammar, never the meaning.
+- Do not invert or alter API names, code, or anything inside a code block - those must stay copy-pasteable and correct.`,
   },
 };
 
-const DEFAULT_STYLE = 'explanatory';
+const DEFAULT_STYLE = 'tutor';
 
 /** Unknown names fall back rather than throwing - a bad setting must not stop answers. */
 function resolveStyle(name) {
@@ -121,11 +164,13 @@ ${refusalRule(sentinel)}`;
 
 /** For the UI switcher and /api/providers. */
 function listStyles() {
-  return Object.entries(STYLES).map(([name, style]) => ({
-    name,
-    label: style.label,
-    description: style.description,
-  }));
+  return Object.entries(STYLES)
+    .filter(([, style]) => !style.hidden)
+    .map(([name, style]) => ({
+      name,
+      label: style.label,
+      description: style.description,
+    }));
 }
 
 module.exports = {

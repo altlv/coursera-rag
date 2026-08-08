@@ -156,6 +156,17 @@ export interface ProviderInfo {
   active: string | null;
   reason: string;
   embeddings: { provider: string; model: string; switchable: boolean; note: string };
+  /**
+   * How answers are written. Presentation only - the grounding rules are identical
+   * across every style, which the server enforces with a test.
+   */
+  styles?: { available: StyleOption[]; active: string };
+}
+
+export interface StyleOption {
+  name: string;
+  label: string;
+  description: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -188,6 +199,7 @@ export class ChatService {
     question: string,
     provider?: string,
     history: ChatHistoryTurn[] = [],
+    style?: string,
   ): Promise<ChatResponse> {
     const response = await fetch('/api/chat', {
       method: 'POST',
@@ -199,6 +211,7 @@ export class ChatService {
         question,
         ...(provider ? { provider } : {}),
         ...(history.length ? { history } : {}),
+        ...(style ? { style } : {}),
       }),
     });
 
@@ -247,6 +260,7 @@ export class ChatService {
     provider?: string,
     history: ChatHistoryTurn[] = [],
     signal?: AbortSignal,
+    style?: string,
   ): AsyncGenerator<StreamEvent> {
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -255,6 +269,7 @@ export class ChatService {
         question,
         ...(provider ? { provider } : {}),
         ...(history.length ? { history } : {}),
+        ...(style ? { style } : {}),
       }),
       signal,
     });

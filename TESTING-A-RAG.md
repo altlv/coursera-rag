@@ -903,6 +903,72 @@ checked **passage by passage**.
 ⚙️ **A test that aggregates where the code discriminates is testing a different
 function than the one that ships.** The suite was green and the feature was broken.
 
+### 5. A null result with no positive control is not a result
+
+📐 The one I would most want back. Three carefully written answer styles produced
+near-identical output, so I concluded that strict grounding overrides
+presentation — and wrote it up, with a table showing prompt wording, rule order,
+temperature and two different models all making no difference.
+
+Every one of those variations was real. The conclusion was still wrong.
+
+A user asked the question I should have asked myself: *would an absurd style
+change anything?* One lolcat-styled prompt, grounding rules untouched:
+
+```
+OHAI! Let me tells ya 'bout dependency injection, k?
+  ... citations present, in range, facts correct
+```
+
+⚙️ **The mechanism worked perfectly. My instructions were the problem.** The
+sensible styles asked for "a direct answer", "short, concrete explanations",
+"write to the person asking" — and a model already believes it is doing all of
+those, so they registered as no-ops. Style instructions have to name a
+**behaviour** that can be checked, not an adjective:
+
+| Does nothing | Works |
+| --- | --- |
+| "Prefer a direct answer" | "NEVER begin with the name of the thing being asked about" |
+| "Write clearly for the reader" | "Address the reader as 'you'. Never write 'the developer'" |
+| "Explain the concept" | "The first sentence must not name the feature at all" |
+
+⚙️ The general rule, and it applies far beyond prompts: **when a change shows no
+effect, prove the mechanism can respond before concluding anything.** Apply an
+absurd dose. If that moves nothing, the pathway is genuinely blocked and your
+null result is real. If it moves everything, your treatment was simply too weak —
+and you were about to write down a false explanation for it.
+
+📐 That control kept its place in the codebase. The silly voices are shipped, not
+because they are funny, but because they make a property visible on every use:
+the facts, the citations and the refusals are identical whether the assistant
+sounds like a reference manual or a cat. If a voice ever *did* change what the
+assistant claims, that would be a grounding bug — so the joke doubles as a
+standing check that presentation and truth are separable.
+
+### 6. The pure function was right and nothing called it
+
+📐 Found while verifying the above. All three voices came back identical from the
+running server, and the styles themselves were fine — `buildPrompt` simply never
+passed the style through, still using a hard-coded prompt.
+
+Every style test passed throughout. They tested the assembly function in
+isolation and never that anything *used* it.
+
+⚙️ **Testing a pure function proves the function, never the wiring.** For each
+extracted helper, add one test that goes through the caller:
+
+```python
+def test_the_styles_are_actually_wired_in():
+    a = build_prompt("q", chunks, style="lolcat")
+    b = build_prompt("q", chunks, style="tutor")
+    assert a.system != b.system          # the caller uses the parameter at all
+    assert "LOLspeak" in a.system        # and uses the right one
+```
+
+⚙️ This is the same failure as the store spec whose stub had no `askStream`, and
+as the aggregating corpus test above. The shape recurs: **a green suite that
+exercises everything except the join.**
+
 ### The habits that fall out of this
 
 - Print counts of what was examined, not just what was found.
@@ -911,6 +977,9 @@ function than the one that ships.** The suite was green and the feature was brok
 - Before trusting a green suite, **break the code on purpose and confirm it goes
   red.** If it does not, your test is decorative.
 - Mirror production's granularity: per-item if production is per-item.
+- Before believing a null result, apply an absurd dose and check the mechanism
+  responds at all.
+- For every extracted helper, one test that reaches it through its caller.
 
 ---
 
@@ -1260,7 +1329,7 @@ here points at a domain rather than a stray idea.
 
 ---
 
-## The seven sentences worth remembering
+## The eight sentences worth remembering
 
 1. Measure retrieval and generation separately, or you will only ever learn that
    *something* is wrong.
@@ -1271,3 +1340,5 @@ here points at a domain rather than a stray idea.
 6. Test the weakest configuration you permit, not the one you usually run.
 7. Set thresholds below current performance, because the point of a floor is to
    disagree with you.
+8. A null result means nothing until you have shown the mechanism can respond at
+   all.

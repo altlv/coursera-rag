@@ -7,7 +7,7 @@ import {
   buildSystemPrompt,
   listStyles,
 } from '../../server/answer-styles.js';
-import { NO_ANSWER_SENTINEL } from '../../server/rag.js';
+import { NO_ANSWER_SENTINEL, buildPrompt } from '../../server/rag.js';
 
 /*
  * Answer styles.
@@ -101,12 +101,48 @@ describe('the styles themselves', () => {
     expect(STYLES.concise.rules).toContain('Prefer short, concrete explanations');
   });
 
-  it('tells the explanatory and tutor styles to answer before elaborating', () => {
-    // The specific complaint being fixed: answers that open by restating a
-    // definition instead of answering the question asked.
-    for (const name of ['explanatory', 'tutor']) {
-      expect(STYLES[name].rules).toMatch(/open with a direct answer/i);
+  it('states behaviours rather than adjectives', () => {
+    /*
+     * The first version of these styles asked for "a direct answer" and "short,
+     * concrete explanations" and changed NOTHING, because a model already believes
+     * it is doing those things. Generic quality adjectives are no-ops.
+     *
+     * A crude proxy for "is this checkable": every style must contain at least one
+     * absolute instruction, not just preferences.
+     */
+    for (const [name, style] of Object.entries(STYLES)) {
+      // `concise` is exempt: it preserves the original preference-worded prompt
+      // on purpose, as the baseline every other style is measured against.
+      if (name === 'concise') continue;
+      expect(
+        /NEVER|Never|ENTIRE|must not|Do not|Begin with|Address the reader/.test(style.rules),
+        `style "${name}" reads as preferences rather than behaviours`,
+      ).toBe(true);
     }
+  });
+
+  it('requires the novelty styles to keep facts and code intact', () => {
+    /*
+     * lolcat and yoda exist to prove presentation is separable from truth. That
+     * only holds if they are explicitly told to mangle the prose and nothing else -
+     * a misspelled API name would be a genuinely wrong answer.
+     */
+    for (const name of ['lolcat', 'yoda']) {
+      expect(STYLES[name].rules).toMatch(/FACTS must still be exactly right/);
+      expect(STYLES[name].rules).toMatch(/citation must still be correct/);
+      expect(STYLES[name].rules).toMatch(/code block/);
+    }
+  });
+
+  it('forbids the opening that prompted all of this', () => {
+    /*
+     * The complaint was answers that begin "Dependency Injection (DI) is a design
+     * pattern..." - the documentation's own first sentence. Asking politely for "a
+     * direct answer" did nothing; forbidding the specific opening is what a model
+     * can actually act on.
+     */
+    expect(STYLES.tutor.rules).toMatch(/must not name the feature/i);
+    expect(STYLES.tutor.rules).toMatch(/Begin with the PROBLEM/);
   });
 
   it('forbids inventing a pitfall in the tutor style', () => {
@@ -115,9 +151,24 @@ describe('the styles themselves', () => {
     expect(STYLES.tutor.rules).toMatch(/never invent a pitfall/i);
   });
 
+  it('keeps the measurement baseline off the menu', () => {
+    /*
+     * `concise` is how "did this voice cost anything" gets answered, so it stays
+     * defined and reachable via ANSWER_STYLE - but it is not a personality and has
+     * no business in a switcher labelled Voice.
+     */
+    expect(STYLES.concise.hidden).toBe(true);
+    expect(listStyles().map((s) => s.name)).not.toContain('concise');
+    expect(resolveStyle('concise')).toBe('concise');
+  });
+
+  it('offers exactly the three voices', () => {
+    expect(listStyles().map((s) => s.label)).toEqual(['Tutor', 'LOLcatz', 'Yoda']);
+  });
+
   it('exposes each style for a switcher, with a description', () => {
     const listed = listStyles();
-    expect(listed).toHaveLength(Object.keys(STYLES).length);
+    expect(listed).toHaveLength(Object.keys(STYLES).filter((n) => !STYLES[n].hidden).length);
     for (const style of listed) {
       expect(style.name).toBeTruthy();
       expect(style.label).toBeTruthy();
@@ -127,5 +178,48 @@ describe('the styles themselves', () => {
 
   it('defaults to a style that actually exists', () => {
     expect(Object.keys(STYLES)).toContain(DEFAULT_STYLE);
+  });
+});
+
+describe('the styles are actually wired in', () => {
+  /*
+   * Every test above passed while buildPrompt was still using a hard-coded
+   * SYSTEM_PROMPT and ignoring the style entirely. The styles were correct, the
+   * assembly was correct, and nothing connected them - so switching voice in the
+   * UI changed nothing at all.
+   *
+   * That is the same lesson as the store: testing a pure function proves the
+   * function, never that anything calls it.
+   */
+  const chunks = [{ title: 'T', path: '/p', url: '', text: 'some passage text' }];
+
+  it('produces a different system prompt per style', () => {
+    const a = buildPrompt('q', chunks, { style: 'lolcat' });
+    const b = buildPrompt('q', chunks, { style: 'tutor' });
+    expect(a.system).not.toBe(b.system);
+    expect(a.system).toContain('LOLspeak');
+    expect(b.system).not.toContain('LOLspeak');
+  });
+
+  it('keeps the grounding rules in whatever style is asked for', () => {
+    for (const name of Object.keys(STYLES)) {
+      const { system } = buildPrompt('q', chunks, { style: name });
+      expect(system).toContain('Answer ONLY using the numbered context passages');
+      expect(system).toContain(NO_ANSWER_SENTINEL);
+    }
+  });
+
+  it('falls back to the default style when none is given', () => {
+    const fallback = buildPrompt('q', chunks, {});
+    const explicit = buildPrompt('q', chunks, { style: DEFAULT_STYLE });
+    expect(fallback.system).toBe(explicit.system);
+  });
+
+  it('does not let the user prompt vary with style', () => {
+    // Only the SYSTEM half is presentation. The passages and the question must be
+    // byte-identical, or comparing voices would not be comparing like with like.
+    const a = buildPrompt('q', chunks, { style: 'lolcat' });
+    const b = buildPrompt('q', chunks, { style: 'yoda' });
+    expect(a.user).toBe(b.user);
   });
 });

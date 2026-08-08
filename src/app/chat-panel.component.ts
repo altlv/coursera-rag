@@ -63,6 +63,23 @@ export class ChatPanelComponent {
     this.store.selectProvider(value || null);
   }
 
+  protected onStyleChange(event: Event) {
+    this.store.selectStyle((event.target as HTMLSelectElement).value);
+  }
+
+  /**
+   * Describes the selected voice on hover, and says what it does NOT change.
+   * Worth stating: a switcher that alters tone invites the assumption that it
+   * alters substance too.
+   */
+  protected readonly styleHint = computed(() => {
+    const selected = this.store.styles().find((s) => s.name === this.store.selectedStyle());
+    const base = selected ? `${selected.label}: ${selected.description}` : 'How answers are written';
+    return `${base}
+
+Changes the wording only - the sources, citations and refusals are identical for every voice.`;
+  });
+
   /** Tooltip text for the unavailable-provider indicator. */
   protected readonly unavailableSummary = computed(() =>
     this.store

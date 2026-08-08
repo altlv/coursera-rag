@@ -20,7 +20,47 @@
         <h2 class="rail-title">Ask Angular</h2>
       </div>
       <div class="rail-actions">
-        @if (store.canSwitchProvider()) {
+        @if (store.hasConversation()) {
+          <!--
+            One control, not two. "New topic" now also clears the conversation -
+            what the separate Clear button used to do.
+
+            The cost, recorded so it can be reversed knowingly: the transcript no
+            longer survives starting a new topic, so earlier answers cannot be read
+            while asking about something unrelated. That separation existed on
+            purpose; two buttons proved more confusing than the distinction was
+            worth.
+          -->
+          <button
+            class="rail-icon-button"
+            type="button"
+            (click)="store.reset()"
+            title="Clear the conversation and start a new topic"
+          >
+            New topic
+          </button>
+        }
+        @if (store.isLoading()) {
+          <!-- A streamed answer can run for many seconds; without this the only
+               way to stop one is to close the tab. -->
+          <button class="rail-icon-button" type="button" (click)="store.stop()" title="Stop generating">
+            Stop
+          </button>
+        }
+        <button class="rail-icon-button" type="button" (click)="store.toggle()" title="Collapse the assistant">
+          &#10095;
+        </button>
+      </div>
+      <!--
+        One control per row below the title. Four short rows beat one crowded one:
+        a title, two selects and three buttons could not share a 380px header
+        without the title wrapping into the controls.
+
+        Row 2 is which model writes, row 3 is how it writes, row 4 is what it cites.
+      -->
+      @if (store.canSwitchProvider()) {
+        <label class="rail-row">
+          <span class="row-label">Model</span>
           <!--
             Only providers the server considers usable appear here. One that has
             permanently failed (no credits, revoked key) is filtered out server-side
@@ -47,53 +87,30 @@
             -->
             <span class="provider-issue" [title]="unavailableSummary()">&#9888;</span>
           }
-        }
-        @if (store.hasConversation()) {
-          <!--
-            Two different things, deliberately separate. "New topic" stops earlier
-            questions being used as context for the next one while leaving the
-            transcript readable; "Clear" throws the conversation away. Before this
-            the only way to unlink context was to delete everything.
-          -->
-          <button
-            class="rail-icon-button"
-            type="button"
-            (click)="store.startNewTopic()"
-            [disabled]="store.inContext() === 0"
-            title="Start a new topic: the next question will not be answered in the context of the ones above"
+        </label>
+      }
+
+      @if (store.styles().length > 1) {
+        <label class="rail-row">
+          <span class="row-label">Voice</span>
+          <select
+            class="style-select"
+            [value]="store.selectedStyle() ?? ''"
+            (change)="onStyleChange($event)"
+            [title]="styleHint()"
           >
-            New topic
-          </button>
-          <button class="rail-icon-button" type="button" (click)="store.reset()" title="Clear the conversation entirely">
-            Clear
-          </button>
-        }
-        @if (store.isLoading()) {
-          <!-- A streamed answer can run for many seconds; without this the only
-               way to stop one is to close the tab. -->
-          <button class="rail-icon-button" type="button" (click)="store.stop()" title="Stop generating">
-            Stop
-          </button>
-        }
-        <button class="rail-icon-button" type="button" (click)="store.toggle()" title="Collapse the assistant">
-          &#10095;
-        </button>
-      </div>
+            @for (style of store.styles(); track style.name) {
+              <option [value]="style.name">{{ style.label }}</option>
+            }
+          </select>
+        </label>
+      }
+
       <p class="rail-subtitle">Answers cite the local docs</p>
     </header>
 
     <div class="rail-scroll" #scroller>
       @for (message of store.messages(); track $index) {
-        <!--
-          The break is drawn where it actually takes effect, so "these messages are
-          no longer context" is visible rather than something the user has to
-          remember having clicked.
-        -->
-        @if (store.hasContextBreak() && $index === store.contextBreakAt()) {
-          <div class="context-break" role="separator">
-            <span>New topic &mdash; earlier messages are no longer used as context</span>
-          </div>
-        }
         <article
           class="bubble"
           [class.user]="message.role === 'user'"

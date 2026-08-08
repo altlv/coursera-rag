@@ -8,6 +8,7 @@ import {
   type ChatRewrite,
   type ChatStatus,
   type ProviderOption,
+  type StyleOption,
 } from './chat.service';
 import { STORAGE_KEY, deserialise, serialise } from './conversation-storage';
 
@@ -102,6 +103,14 @@ export class ChatStore {
   readonly selectedProvider = signal<string | null>(null);
   readonly activeProvider = signal<string | null>(null);
 
+  /*
+   * How answers are written. Presentation only: the grounding rules are identical
+   * across every style, enforced server-side, so this cannot change what the
+   * assistant is allowed to claim - only how it says it.
+   */
+  readonly styles = signal<StyleOption[]>([]);
+  readonly selectedStyle = signal<string | null>(null);
+
   /**
    * Where the current topic starts.
    *
@@ -142,6 +151,11 @@ export class ChatStore {
       this.providers.set(info.available);
       this.unavailableProviders.set(info.unavailable ?? []);
       this.activeProvider.set(info.active);
+      this.styles.set(info.styles?.available ?? []);
+      // Only adopt the server default when the user has not chosen for themselves.
+      if (!this.selectedStyle() && info.styles?.active) {
+        this.selectedStyle.set(info.styles.active);
+      }
 
       // If the selected provider has since been demoted, fall back to the
       // server default rather than repeatedly sending questions to a dead one.
@@ -158,6 +172,11 @@ export class ChatStore {
 
   selectProvider(name: string | null) {
     this.selectedProvider.set(name);
+  }
+
+  selectStyle(name: string) {
+    this.selectedStyle.set(name);
+    this.persist();
   }
 
   /**
@@ -365,6 +384,7 @@ export class ChatStore {
         provider,
         history,
         this.abort.signal,
+        this.selectedStyle() ?? undefined,
       )) {
         if (event.type === 'start') {
           patch({
