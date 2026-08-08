@@ -654,6 +654,103 @@ non-streaming path retries, assert that the streaming one does **not**.
   and take complete frames from the front; parsing whatever arrived is the classic
   bug. Verify against a real stream and count: 📐 158 frames, zero unparseable.
 
+## A correct pipeline can still produce wrong output
+
+⚙️ Every test so far checks the *pipeline*. None of them looks at what the user
+ends up seeing, and those are different things — presentation has requirements of
+its own that no upstream assertion covers.
+
+📐 Two bugs found by a user in one screenshot, with a green suite behind them:
+
+**The same source listed twice.** Retrieval works in **passages**; a reader thinks
+in **pages**. With `maxPerPage: 2`, two passages from one document is a normal and
+desirable result — and mapping them straight to links printed the same page twice.
+Nothing was broken. Retrieval behaved exactly as designed, and the derived output
+was still wrong.
+
+```python
+def test_sources_list_one_entry_per_page_not_per_passage():
+    sources = to_sources([passage("/guide/di"), passage("/guide/di"), passage("/guide/di/providers")])
+    assert [s.path for s in sources] == ["/guide/di", "/guide/di/providers"]
+```
+
+⚙️ The general shape: **wherever you collapse a technical unit into a
+user-facing one, test the collapse.** Passages → pages, chunks → documents,
+matches → results. It is exactly the sort of transformation that looks too
+trivial to test.
+
+**A panel whose own content broke its layout.** A long unbreakable token — a URL,
+a line of code — widened a grid column that was implicitly `auto`-sized, pushing
+the conversation sideways. The wrapping rules could never apply, because the
+column was never the constraint.
+
+⚙️ RAG output is *hostile to layout* in a way ordinary copy is not: it contains
+code, file paths, long identifiers and URLs, none of which wrap at spaces. Feed
+your UI the nastiest passage in your corpus and look at it.
+
+```python
+def test_longest_corpus_passage_has_a_wrappable_shape():
+    """A cheap proxy for 'does the UI survive its own content'."""
+    worst = max(store["chunks"], key=lambda c: longest_unbroken_run(c["text"]))
+    assert longest_unbroken_run(worst["text"]) < 80   # or make the CSS handle it
+```
+
+### A breakpoint that cannot fire is the same as no breakpoint
+
+📐 Worth its own entry, because it looks like working code and reviews cleanly. I
+wrote a container query at `max-width: 360px` for a panel whose width is **380px**
+— just below the only size that ever mattered. It never fired once.
+
+⚙️ The general form: **a conditional whose condition is unreachable is
+indistinguishable from a conditional that does nothing.** It applies well beyond
+CSS — a score threshold above any score your system produces, a retry branch for
+an error your client already swallows, a cache tier nothing is ever large enough
+to reach.
+
+The cheap check is to state the actual value next to the boundary and compare
+them:
+
+```python
+def test_breakpoints_sit_inside_the_range_they_govern():
+    # The rail's real width must fall on the narrow side of a rule meant for it.
+    assert RAIL_NARROW_BREAKPOINT >= DEFAULT_RAIL_WIDTH
+```
+
+⚙️ And the design lesson underneath it: I was tuning numbers until things fit,
+when the layout needed **one fewer thing on the row**. Shrinking until it fits is
+tuning against one width; moving the element to its own row is correct at every
+width. If your fix is a number, check that the structure is not the actual
+problem.
+
+### Guard the silent-failure classes your stack has
+
+⚙️ Every stack has constructs that fail *quietly* — no error, no warning, just
+nothing happening. Find yours and write one test per class, because a build that
+succeeds is not evidence.
+
+📐 One found while fixing the above: `calc(100vh - var(--space-8))`, where the
+spacing scale stops at 6. An undefined custom property is invalid at
+computed-value time, so the **whole declaration is discarded**. It compiled
+cleanly and did nothing.
+
+```python
+def test_every_css_variable_used_is_defined():
+    for stylesheet in stylesheets:
+        for token in re.findall(r"var\(\s*(--[a-z0-9-]+)", stylesheet):
+            assert token in defined_tokens
+```
+
+⚙️ Note the second assertion that test needs: **check that it found something to
+check.** A file-scanning test that silently matches zero files passes forever.
+
+### And the boring one that cost the most time
+
+⚙️ When verifying a fix against a running service, **confirm you are talking to
+the version you just built.** Twice in this project a "the fix did not work"
+result came from a stale process still holding the port — once for a spend
+ceiling, once for this deduplication. Restart, or print a version, before
+concluding anything.
+
 ## How to know your measurement is broken
 
 ⚙️ This section is the one I would keep if I could keep only one. **A failing

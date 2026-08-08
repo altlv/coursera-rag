@@ -56,7 +56,15 @@
 
   /* Layout */
   --content-max: 1100px;
-  --rail-width: 380px;
+  /*
+   * The rail scales with the window instead of being a fixed 380px.
+   *
+   * Fixed, it could not give way: on a ~1200px window the shell's columns and
+   * gaps added up to more than the viewport, and the overflow landed on the right
+   * edge - the rail ran past the window and its messages were clipped. clamp()
+   * lets it shrink to a still-usable 300px before anything is forced off-screen.
+   */
+  --rail-width: clamp(300px, 26vw, 380px);
   /* Lifts the chat rail (and so its composer) clear of the window bottom. */
   --rail-bottom-gap: 50px;
 

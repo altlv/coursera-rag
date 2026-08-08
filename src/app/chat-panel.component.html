@@ -9,13 +9,15 @@
   </button>
 } @else {
   <section class="rail" aria-label="Angular documentation assistant">
+    <!--
+      Two rows, not one. The title, a provider select and three buttons never fit
+      across a 380px rail: the title wrapped and the select sat on top of it. The
+      subtitle moves to its own row underneath, where it has the full width.
+    -->
     <header class="rail-header">
       <div class="rail-title-group">
         <span class="rail-dot" [class.busy]="store.isLoading()" aria-hidden="true"></span>
-        <div>
-          <h2 class="rail-title">Ask Angular</h2>
-          <p class="rail-subtitle">Answers cite the local docs</p>
-        </div>
+        <h2 class="rail-title">Ask Angular</h2>
       </div>
       <div class="rail-actions">
         @if (store.canSwitchProvider()) {
@@ -77,6 +79,7 @@
           &#10095;
         </button>
       </div>
+      <p class="rail-subtitle">Answers cite the local docs</p>
     </header>
 
     <div class="rail-scroll" #scroller>

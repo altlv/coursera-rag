@@ -10,6 +10,7 @@ const {
   assessConfidence,
   generateAnswer,
   streamAnswer,
+  toSources,
   rewriteQuestion,
   HISTORY_EXCHANGES,
   REFUSAL,
@@ -1009,15 +1010,7 @@ app.post('/api/chat', async (request, reply) => {
    * 'partial' the sources ARE the useful part of the response - the answer text
    * says as much - so they are still returned.
    */
-  const sources =
-    status === 'refused'
-      ? []
-      : results.map((result) => ({
-          title: result.title,
-          path: result.path,
-          url: `/docs?path=${encodeURIComponent(result.path)}`,
-          originalUrl: result.url,
-        }));
+  const sources = status === 'refused' ? [] : toSources(results);
 
   /*
    * Log the question. NOT awaited: logging must never add latency to an answer,
@@ -1140,13 +1133,7 @@ app.post('/api/chat/stream', async (request, reply) => {
   const history = boundHistory(request.body);
   const { results, mode, rewrite } = await retrieveFor(question, history);
 
-  const sources =
-    results.map((result) => ({
-      title: result.title,
-      path: result.path,
-      url: `/docs?path=${encodeURIComponent(result.path)}`,
-      originalUrl: result.url,
-    })) ?? [];
+  const sources = toSources(results);
 
   if (!chatProvider.name) {
     send({

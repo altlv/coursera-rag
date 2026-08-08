@@ -1154,6 +1154,40 @@ async function* streamAnswer({
   };
 }
 
+/**
+ * The sources list shown under an answer: one entry per PAGE.
+ *
+ * Retrieval works in passages and the reader thinks in pages. With maxPerPage: 2,
+ * two passages from one document is a normal and desirable result - and mapping
+ * them straight to links printed the same page twice, which reads as a bug even
+ * though retrieval was behaving exactly as designed.
+ *
+ * The per-passage detail is not lost; it is what "How this answer was built"
+ * shows, where the distinction between passages actually means something.
+ *
+ * Order of first appearance is preserved deliberately: after reranking that order
+ * is the relevance ranking, so re-sorting by anything else would discard the most
+ * useful thing about it.
+ */
+function toSources(results) {
+  const seen = new Set();
+  const sources = [];
+
+  for (const result of results ?? []) {
+    // A link to /docs?path=undefined is worse than one fewer source.
+    if (!result?.path || seen.has(result.path)) continue;
+    seen.add(result.path);
+    sources.push({
+      title: result.title,
+      path: result.path,
+      url: `/docs?path=${encodeURIComponent(result.path)}`,
+      originalUrl: result.url,
+    });
+  }
+
+  return sources;
+}
+
 // ---------------------------------------------------------------------------
 // Answer confidence
 // ---------------------------------------------------------------------------
@@ -1363,6 +1397,7 @@ module.exports = {
   generateAnswer,
   streamAnswer,
   finaliseAnswer,
+  toSources,
   createOpenAiLlm,
   SYSTEM_PROMPT,
   REFUSAL,

@@ -73,6 +73,16 @@
   height: 100%;
   max-height: 100%;
   min-height: 0;
+  /*
+   * The header adapts to the RAIL's width, not the viewport's.
+   *
+   * A viewport breakpoint is the wrong instrument here: the rail is 380px wide on
+   * a 1920px screen, so the header ran out of room while every viewport query
+   * said there was plenty. The title wrapped to two lines and the provider select
+   * overlapped it. A container query asks the question that actually matters.
+   */
+  container-type: inline-size;
+  container-name: rail;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-card);
@@ -85,12 +95,20 @@
   min-height: 0;
 }
 
+/*
+ * Two rows: title + controls, then the subtitle underneath.
+ *
+ * One row could not hold a title, a provider select and three buttons across a
+ * 380px rail - the title wrapped and the select overlapped it. Giving the
+ * subtitle its own full-width row removes the competition entirely, rather than
+ * shrinking things until they happen to fit at one particular width.
+ */
 .rail-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-4);
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-border);
   background: linear-gradient(180deg, var(--color-brand-tint) 0%, var(--color-surface) 100%);
 }
@@ -129,19 +147,38 @@
   margin: 0;
   font-size: 1rem;
   font-weight: 700;
+  /*
+   * Was allowed to wrap, which is what produced "Ask / Angular" on two lines with
+   * the provider select sitting on top of it. Truncating is the better failure:
+   * the panel is already labelled by everything in it.
+   */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-subtitle {
+  /* Second row, spanning both columns - see .rail-header. */
+  grid-column: 1 / -1;
   margin: 0;
   font-size: 0.75rem;
   color: var(--color-text-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-actions {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  flex: none;
+  /*
+   * flex: none kept the buttons at full size and let them overlap the title
+   * instead of the title yielding. The controls are the interactive part, so they
+   * hold their size - but they must not overflow the header either.
+   */
+  flex: 0 0 auto;
+  min-width: 0;
 }
 
 /* Which model writes the answers. Retrieval is unaffected by this choice. */
@@ -772,5 +809,36 @@
    */
   .provider-select {
     max-width: 6rem;
+  }
+}
+
+/*
+ * Narrow RAIL - not a narrow viewport.
+ *
+ * The rail is 380px on a 1920px screen, so the header runs out of room while
+ * every viewport query reports plenty of space. These drop the least useful
+ * elements first, in order: the subtitle, then the provider label, then the
+ * word-length of the buttons.
+ */
+@container rail (max-width: 380px) {
+  /*
+   * Retargeted from 360px, which never fired: the rail's default width IS 380px,
+   * so the query was written just below the only size that mattered. A breakpoint
+   * that cannot trigger is indistinguishable from no breakpoint at all.
+   */
+  .provider-select {
+    max-width: 6.5rem;
+  }
+}
+
+@container rail (max-width: 300px) {
+  /*
+   * At this width the header cannot hold five controls on one line. The provider
+   * switcher goes rather than the conversation controls: it is set once, while
+   * New topic and Clear are used repeatedly.
+   */
+  .provider-select,
+  .provider-issue {
+    display: none;
   }
 }
