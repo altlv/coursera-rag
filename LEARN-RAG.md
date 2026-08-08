@@ -531,9 +531,10 @@ A **held-out set** of 15 questions, never used for tuning, targeting details in 
 | Set | hit@1 | hit@3 | MRR |
 | --- | --- | --- | --- |
 | Golden (tuned against) | 100% | 100% | 1.000 |
-| **Held-out (never tuned)** | **73%** | **93%** | **0.822** |
+| Held-out, vector retrieval only | 73% | 93% | 0.822 |
+| **Held-out, as it ships today** | **87%** | **100%** | **0.922** |
 
-**The gap between those rows is the cost of evaluating on what you tuned.**
+**The gap between the first two rows is the cost of evaluating on what you tuned.** The third row is what [reranking](#reranking-measure-the-ceiling-before-you-build-the-thing) bought; the middle row is kept because most of this file compares against it.
 
 Two rules that keep it honest: thresholds sit *below* current performance, so they are regression guards rather than targets; and a test asserts the held-out set is still *harder* than the golden one, so it cannot be quietly made easier to go green.
 
@@ -795,7 +796,7 @@ Kept deliberately, because a list of known gaps is more useful than a claim of c
 - **Confidence is provider-dependent**, because it weights the model's own verdict most heavily.
 - **The spend ceiling is an estimate.** The token counts are exact; the price table is static and will go stale, so the dollar figure drifts from the real invoice. Nothing reconciles the two.
 - **Nothing bounds a single expensive question.** The daily ceiling and the rate limit both work on aggregates, so one enormous conversation can still cost more than intended before either notices.
-- **Retrieval quality is honest but not good.** hit@1 73% on the held-out set means roughly one question in four does not put the best page first.
+- **Retrieval still misses.** hit@1 is **87%** on the held-out set after reranking, up from 73% — so roughly one question in eight does not put the best page first. Better, not solved.
 
 Two entries were removed from this list only after being fixed — prompt injection and question logging. It is worth saying that they sat here as *known* gaps for a while first: writing a gap down is what made it a task rather than a vague unease.
 
