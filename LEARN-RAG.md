@@ -6,6 +6,8 @@ Nearly every section here follows the same shape: **we assumed something, measur
 
 Setup and commands live in [README.md](README.md). This file is about *why*.
 
+**If you are building your own**, [TESTING-A-RAG.md](TESTING-A-RAG.md) covers how to know whether what you built works, in terms that apply to any RAG system. A companion construction guide, *Building a RAG chatbot in Python*, is kept outside this repo. This file is the case study both draw their evidence from.
+
 ---
 
 ## What RAG is, in one paragraph

@@ -10,6 +10,14 @@ An Angular documentation assistant built with Retrieval-Augmented Generation. As
 >
 > Why chunks are 1,200 characters, why cosine similarity collapses to a dot product, why confidence can't be a similarity score, why comparing vectors from two models fails silently, and the evaluation mistake that made a 100% score meaningless. Every claim there is backed by a measurement from this corpus.
 
+> **🧪 [TESTING-A-RAG.md](TESTING-A-RAG.md) — how to know you built the right thing.**
+>
+> The deterministic/stochastic split that makes RAG testable at all, golden vs held-out sets, hit@k and MRR and what each hides, adversarial testing against the weakest model you support, and how to tell when your *measurement* is the broken thing. Written to apply to any RAG system, not just this one.
+
+Numbers in both are labelled ⚙️ (general) or 📐 (measured on this corpus — re-measure for yours), so nothing is carried over as a rule that was only ever a local result.
+
+A companion construction guide, *Building a RAG chatbot in Python*, is kept outside this repo — it is language- and corpus-agnostic, so it does not belong to the Angular prototype.
+
 ---
 
 ## Quick start
