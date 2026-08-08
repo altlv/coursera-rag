@@ -666,14 +666,24 @@ Three more, each a consequence of taking failure seriously:
 
 A 3–8 second wait with no feedback reads as broken, so answers now stream. The plumbing is unremarkable; the trade-off is not, and it is worth stating rather than discovering.
 
-**Every output-side guard runs after the model finishes.** The injection detector can refuse a whole answer; citation stripping edits the text. Stream the tokens and the user has already read them by the time either runs. **Streaming genuinely weakens the output half of the [injection defence](#prompt-injection-and-why-the-model-handled-it-is-not-a-defence).**
+**Every output-side guard runs after the model finishes.** The injection detector can refuse a whole answer; citation stripping edits the text. Stream the tokens naively and the user has read them before either runs.
 
-Two mitigations, neither of which restores the guarantee:
+The [output guard](#prompt-injection-and-why-the-model-handled-it-is-not-a-defence) has two rules, and they behave completely differently under streaming. Separating them is what made this tractable:
 
-1. **The known-payload patterns run incrementally** on the accumulated text, so a captured answer is cut off at the first sign rather than after the last token. A payload complete in the first chunk still reaches the eye.
-2. **The final event carries the validated text** and the client replaces what it displayed, so an out-of-range citation is visible briefly and then corrected.
+| Rule | Incremental? | Handling |
+| --- | --- | --- |
+| Matches a known payload | **Yes** — never legitimate at any length | Checked on the accumulated text *before* each piece is forwarded, so a payload is never displayed — including one complete in the first chunk |
+| Very short and cites nothing | **No** — it is a claim about the *finished* answer | The opening 40 characters are withheld |
 
-⚙️ Only *part* of the guard can work incrementally, and noticing which part matters. `looksInjected` also flags an answer that is "very short and cites nothing" — which is true of the opening words of **every** honest answer, since a partial answer is short by definition and has not reached its citations yet. So the payload patterns were split out for the streaming case, and the length heuristic still runs once on the whole text.
+⚙️ The second row is the interesting one. That rule cannot run per-chunk, because *every* honest answer is short and uncited for its first few words. Naively, that meant a short captured answer would be displayed and only then replaced by a refusal — the one genuine hole streaming opened.
+
+**Buffering exactly the threshold closes it.** The rule only fires below 40 characters, so if nothing is displayed until the answer passes 40 characters, nothing displayed can ever be withdrawn by it. An answer that never reaches 40 characters is never streamed at all — it goes straight to the final event, refusal included.
+
+The cost is a few dozen characters of delay: measured live, the first piece arrives at 41 characters and the remaining 110 stream individually. Milliseconds, against the seconds streaming saves.
+
+⚙️ The threshold is **exported and shared** rather than written twice. Two copies would drift, and the drift would silently reopen the gap the buffer exists to close.
+
+**What remains weakened:** nothing in the injection guard. An out-of-range citation is still visible for a moment before the final event corrects it — cosmetic, not a security property. Which is why the answer to "should streaming be removed?" is no: the hole was real, and it was closeable exactly rather than approximately.
 
 **One shared finaliser.** `generateAnswer` and `streamAnswer` now share everything after generation. That is not tidiness: with two copies, streaming would eventually become a way to bypass a check — not by anyone deciding it should, but by one path gaining a guard the other missed. A test asserts the streaming path runs attribution and code validation too.
 

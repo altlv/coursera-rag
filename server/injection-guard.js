@@ -103,6 +103,16 @@ const SUSPICIOUS_ANSWER_PATTERNS = [
 ];
 
 /**
+ * Below this length, an uncited answer is treated as suspicious.
+ *
+ * Exported because streaming depends on the exact number: streamAnswer withholds
+ * the first SHORT_ANSWER_CHARS characters, so anything it displays is already too
+ * long for this rule to fire on. Two copies of the threshold would drift, and the
+ * drift would silently reopen the gap that buffering exists to close.
+ */
+const SHORT_ANSWER_CHARS = 40;
+
+/**
  * Only the known-payload patterns, for checking an answer WHILE it streams.
  *
  * looksInjected cannot be used incrementally: its "very short and cites nothing"
@@ -139,7 +149,7 @@ function looksInjected(answer, { citations = [], hadChunks = true } = {}) {
     if (pattern.test(text)) reasons.push('answer matches a known injection payload');
   }
 
-  if (hadChunks && citations.length === 0 && text.length < 40) {
+  if (hadChunks && citations.length === 0 && text.length < SHORT_ANSWER_CHARS) {
     reasons.push('answer is very short and cites nothing despite passages being supplied');
   }
 
@@ -153,5 +163,6 @@ module.exports = {
   neutralisePassages,
   looksInjected,
   matchesKnownPayload,
+  SHORT_ANSWER_CHARS,
   SUSPICIOUS_ANSWER_PATTERNS,
 };

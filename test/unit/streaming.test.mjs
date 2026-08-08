@@ -51,13 +51,24 @@ async function collect(iterator) {
 }
 
 describe('streamAnswer', () => {
-  it('forwards each piece as it arrives', async () => {
-    const llm = fakeStream(['Signals ', 'are ', 'reactive [1].']);
-    const { deltas, final } = await collect(streamAnswer({ question: 'q', chunks, llm }));
+  it('forwards text as it arrives, once past the opening buffer', async () => {
+    /*
+     * The first SHORT_ANSWER_CHARS characters are withheld - see below for why -
+     * so the opening pieces arrive coalesced and everything after them streams
+     * individually.
+     */
+    const llm = fakeStream([
+      'Signals are a reactive primitive in Angular',
+      ' that notify consumers',
+      ' when the value changes [1].',
+    ]);
+    const { deltas, text, final } = await collect(streamAnswer({ question: 'q', chunks, llm }));
 
-    expect(deltas).toEqual(['Signals ', 'are ', 'reactive [1].']);
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(text).toBe(
+      'Signals are a reactive primitive in Angular that notify consumers when the value changes [1].',
+    );
     expect(final.status).toBe('answered');
-    expect(final.answer).toBe('Signals are reactive [1].');
   });
 
   it('always ends with exactly one final event', async () => {
@@ -89,15 +100,61 @@ describe('streamAnswer', () => {
 
   it('carries the validated answer in the final event, not the raw text', async () => {
     /*
-     * [7] is out of range for two passages. The client has already displayed it,
-     * so the final event has to carry the corrected text for it to be replaced.
+     * [7] is out of range for two passages. Once the answer is long enough to be
+     * streamed, the client has displayed it - so the final event has to carry the
+     * corrected text for the client to replace what it showed.
      */
-    const llm = fakeStream(['Use signal() [1]', ' and also [7].']);
+    const llm = fakeStream([
+      'Signals are created with signal() and read by calling them [1]',
+      ' and there is more detail in [7].',
+    ]);
     const { text, final } = await collect(streamAnswer({ question: 'q', chunks, llm }));
 
     expect(text).toContain('[7]');
     expect(final.answer).not.toContain('[7]');
     expect(final.citations).toEqual([1]);
+  });
+
+  /*
+   * The opening buffer.
+   *
+   * The "very short and cites nothing" rule is the ONLY part of the output guard
+   * that cannot be evaluated incrementally - it is a statement about the finished
+   * answer. Without buffering, a short captured answer would be displayed and only
+   * then replaced by a refusal, which was the one genuine hole streaming opened.
+   *
+   * Withholding exactly SHORT_ANSWER_CHARS closes it: anything ever displayed is
+   * already too long for that rule to apply, so nothing displayed can later be
+   * withdrawn by it.
+   */
+  describe('nothing is displayed that the final check could withdraw', () => {
+    it('never streams an answer short enough to trip the length rule', async () => {
+      const llm = fakeStream(['Yes.']);
+      const { deltas, final } = await collect(streamAnswer({ question: 'q', chunks, llm }));
+
+      expect(deltas).toEqual([]);
+      // Short and uncited, so the guard refuses it - and the user never saw it.
+      expect(final.status).toBe('refused');
+    });
+
+    it('withholds the opening until the answer is past the threshold', async () => {
+      const llm = fakeStream(['Short', ' bits', ' that', ' add', ' up', ' to something longer [1].']);
+      const { deltas } = await collect(streamAnswer({ question: 'q', chunks, llm }));
+
+      // Nothing is emitted while the accumulated answer is still short enough
+      // for the length rule to apply to it.
+      expect(deltas[0].length).toBeGreaterThanOrEqual(20);
+    });
+
+    it('loses no text to the buffer', async () => {
+      // The withheld opening must be flushed with the first emitted delta, not
+      // dropped - otherwise the streamed text silently omits the first sentence.
+      const pieces = ['Signals are a reactive primitive', ' used throughout Angular [1].'];
+      const { text, final } = await collect(streamAnswer({ question: 'q', chunks, llm: fakeStream(pieces) }));
+
+      expect(text).toBe(pieces.join(''));
+      expect(final.answer).toBe(pieces.join(''));
+    });
   });
 
   it('stops streaming as soon as the answer looks captured', async () => {

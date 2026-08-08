@@ -556,20 +556,52 @@ async def test_stream_stops_as_soon_as_the_answer_looks_captured():
 ⚙️ Post-hoc refusal is much weaker than an early cut. Test the *timing*, not just
 the verdict — `len(deltas) < 3` is the assertion that distinguishes them.
 
-### Watch for the guard that cannot run incrementally
+### Sort your guards into incremental and terminal
 
-📐 A real trap. The injection heuristic here also flags an answer that is "very
-short and cites nothing" — which describes the opening words of **every** honest
-answer. Run the whole guard per-chunk and it fires on all of them.
+⚙️ This is the step that decides whether streaming costs you security. Go through
+each output check and ask: **is this a claim about the text so far, or about the
+finished answer?**
 
-⚙️ So split it: the checks that are valid on a partial answer run incrementally,
-and the ones that need the whole text run once at the end. Test both halves, and
-add the test that would have caught the naive version:
+📐 Here the split was:
+
+| Rule | Kind | Consequence |
+| --- | --- | --- |
+| Matches a known payload | Incremental — never legitimate at any length | Check before forwarding each piece; a payload is never displayed |
+| Very short and cites nothing | Terminal — a claim about the finished answer | Cannot run per-chunk: it describes the opening words of **every** honest answer |
 
 ```python
 def test_incremental_check_does_not_fire_on_an_honest_opening():
     assert matches_known_payload("Signals are") is None
 ```
+
+### Buffer past your terminal checks, and share the threshold
+
+⚙️ A terminal check is not automatically a lost cause. If it only applies below
+some bound, **withhold output until you are past that bound** and it can never
+withdraw something already displayed.
+
+📐 The "short and uncited" rule fires below 40 characters, so nothing is streamed
+until the answer exceeds 40 characters. An answer that never gets there is never
+streamed at all — it goes straight to the final event, refusal included. Measured
+cost: the first piece arrives at 41 characters, the rest stream individually.
+
+```python
+def test_never_streams_an_answer_short_enough_to_trip_the_length_rule():
+    deltas, final = await collect(stream_answer(q, chunks, fake_stream(["Yes."])))
+    assert deltas == []                  # the user never saw it
+    assert final.status == "refused"
+
+def test_the_buffer_loses_no_text():
+    # The withheld opening must be flushed with the first emitted piece, not
+    # dropped - otherwise the stream silently omits the first sentence.
+    pieces = ["Signals are a reactive primitive", " used throughout Angular [1]."]
+    text, final = await collect(stream_answer(q, chunks, fake_stream(pieces)))
+    assert text == "".join(pieces)
+```
+
+⚙️ **Export the threshold and use it in both places.** Two copies drift, and the
+drift silently reopens the gap the buffer exists to close. That is a test worth
+writing too: assert the buffer size and the rule read the same constant.
 
 ### One finaliser, shared
 

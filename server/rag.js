@@ -1,5 +1,10 @@
 const { supersededApiNote } = require('./api-pairs');
-const { neutralisePassages, looksInjected, matchesKnownPayload } = require('./injection-guard');
+const {
+  neutralisePassages,
+  looksInjected,
+  matchesKnownPayload,
+  SHORT_ANSWER_CHARS,
+} = require('./injection-guard');
 const { verifyAttribution, validateCodeSamples } = require('./answer-checks');
 
 /*
@@ -1087,14 +1092,33 @@ async function* streamAnswer({
   const prompt = buildPrompt(question, chunks, { history, provider: provider ?? llm?.provider });
 
   let text = '';
+  /*
+   * Withhold the opening characters until the answer is long enough that the
+   * "short and cites nothing" rule can no longer apply to it.
+   *
+   * That rule is the only part of the output guard that CANNOT be evaluated
+   * incrementally - it is a statement about the finished answer. Without this
+   * buffer, a short captured answer would be displayed and only then replaced by
+   * a refusal, which is the one genuine hole streaming opened.
+   *
+   * Buffering exactly SHORT_ANSWER_CHARS closes it: anything ever displayed is
+   * already too long for the rule to fire on, so nothing displayed can later be
+   * withdrawn by it. The cost is a few dozen characters of delay - milliseconds,
+   * and invisible next to the seconds streaming saves.
+   */
+  let held = '';
+
   try {
     for await (const delta of llm.stream(prompt)) {
       if (!delta) continue;
       text += delta;
 
+      /*
+       * Checked on the accumulated text BEFORE anything is forwarded, so a payload
+       * is never displayed - including one complete in the very first chunk.
+       */
       const payload = matchesKnownPayload(text);
       if (payload) {
-        // Stop immediately - do not forward this delta, and do not keep going.
         yield {
           type: 'final',
           status: 'refused',
@@ -1107,12 +1131,22 @@ async function* streamAnswer({
         return;
       }
 
-      yield { type: 'delta', text: delta };
+      held += delta;
+      if (text.length < SHORT_ANSWER_CHARS) continue;
+
+      yield { type: 'delta', text: held };
+      held = '';
     }
   } catch (error) {
     yield { type: 'error', message: error.message };
     return;
   }
+
+  /*
+   * A complete answer shorter than the buffer was never streamed. Emitting it now
+   * would display text the final event may be about to refuse - so it is left to
+   * the final event, which the client displays either way.
+   */
 
   yield {
     type: 'final',
