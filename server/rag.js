@@ -20,7 +20,7 @@ const { verifyAttribution, validateCodeSamples } = require('./answer-checks');
  *   2. chunk    -> normalizeText + chunkText            (this file)
  *   3. embed    -> server/build-vector-store.js
  *   4. retrieve -> normalizeVector + dotProduct + selectChunks  (this file)
- *   5. generate -> buildPrompt + generateAnswer         (this file)
+ *   5. generate -> buildPrompt + generateAnswer / streamAnswer  (this file)
  */
 
 // ---------------------------------------------------------------------------

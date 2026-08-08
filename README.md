@@ -3,7 +3,7 @@
 An Angular documentation assistant built with Retrieval-Augmented Generation. Ask it a question about Angular and it answers from a local copy of the official docs, citing the pages it used — or tells you plainly when the docs don't cover it.
 
 - **Frontend** — Angular 22 app: docs browser plus a chat rail that survives navigation
-- **Backend** — Fastify server: serves the local corpus and exposes `/api/chat`
+- **Backend** — Fastify server: serves the local corpus and exposes `/api/chat` and `/api/chat/stream`
 - **Corpus** — 114 Angular docs pages under `docs/angular/`, ~1,122 indexed passages
 
 > **📘 [LEARN-RAG.md](LEARN-RAG.md) — design choices and reasoning while learning how to build a RAG chatbot.**
@@ -162,23 +162,37 @@ CI runs all of it plus a production build on every push. One caveat stated delib
 
 ```
 server/
-  rag.js                 chunking, vector maths, prompts, memory - all pure functions
-  index.js               Fastify routes
-  llm-providers.js       provider registry, timeout, retry
-  provider-health.js     permanent vs transient failure classification
-  build-vector-store.js  chunks.json + vectors.bin
+  rag.js                  chunking, vector maths, prompts, generation - pure functions
+  index.js                Fastify routes
+  llm-providers.js        provider registry, timeout, retry, streaming
+  provider-health.js      permanent vs transient failure classification
+  build-vector-store.js   chunks.json + vectors.bin
+  injection-guard.js      neutralise, delimit, detect
+  answer-checks.js        citation attribution, code-sample validation
+  answer-quality.js       scoring an answer against a rubric
+  api-pairs.js            superseded APIs the corpus does not flag itself
+  question-log.js         append-only log of what was asked, and ratings
+  rate-limit.js           token bucket per caller
+  spend-limit.js          daily ceiling, persisted
 scripts/
-  docs-source.js         shared scraping, allowlist, hashing
-  fetch-angular-docs.js  full rebuild
-  update-docs.js         incremental update
-  eval-retrieval.js      score and A/B the eval sets
+  docs-source.js          shared scraping, allowlist, sanitising, hashing
+  fetch-angular-docs.js   full rebuild
+  update-docs.js          incremental update
+  eval-retrieval.js       score and A/B the eval sets
+  eval-answers.js         score the answers, not the retrieval
+  check-attribution.js    do cited passages contain what they are credited with
+  compare-providers.js    same passages, different writers
 test/
-  golden-set.mjs         15 questions used for tuning
-  holdout-set.mjs        15 questions NEVER used for tuning
+  golden-set.mjs          15 questions used for tuning
+  holdout-set.mjs         15 questions NEVER used for tuning
+  answer-rubrics.mjs      what a correct answer must say, per question
+  unit/                   pure-logic suites
 src/app/
-  chat.store.ts          conversation state (signals, root-scoped)
-  chat-panel.component   the docked rail
-  roadmap.data.ts        single source of truth for project status
+  chat.store.ts           conversation state (signals, root-scoped)
+  chat.service.ts         HTTP, including the SSE stream client
+  conversation-storage.ts persistence: serialise, deserialise, trim
+  chat-panel.component    the docked rail
+  roadmap.data.ts         single source of truth for project status
 ```
 
 ## Environment
