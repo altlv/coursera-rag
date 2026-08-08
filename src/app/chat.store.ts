@@ -9,6 +9,7 @@ import {
   type ChatStatus,
   type ProviderOption,
 } from './chat.service';
+import { STORAGE_KEY, deserialise, serialise } from './conversation-storage';
 
 /**
  * Six turns, i.e. three exchanges.
@@ -99,9 +100,30 @@ export class ChatStore {
   readonly selectedProvider = signal<string | null>(null);
   readonly activeProvider = signal<string | null>(null);
 
+  /**
+   * Where the current topic starts.
+   *
+   * Only messages from this index onward are sent as history. That makes
+   * "new topic" different from "clear": the transcript stays on screen and stays
+   * readable, but earlier turns stop feeding the query rewriter.
+   *
+   * The distinction matters because follow-ups are RESOLVED against history - ask
+   * about signals, then ask "how do I test it?", and the rewriter turns the second
+   * into a question about signals. That is the feature working. It is also exactly
+   * what goes wrong when the next question is about something else entirely, and
+   * before this there was no way to say so short of wiping the conversation.
+   */
+  readonly contextBreakAt = signal(0);
+
   constructor() {
+    this.restore();
     void this.loadProviders();
   }
+
+  /** Messages that will inform the next question, for the UI to mark visually. */
+  readonly inContext = computed(() =>
+    this.messages().slice(this.contextBreakAt()).filter((m) => m.role === 'user').length,
+  );
 
   /** Only worth showing a switcher when there is more than one real choice. */
   readonly canSwitchProvider = computed(() => this.providers().length > 1);
@@ -170,6 +192,9 @@ export class ChatStore {
    */
   private historyForRequest(): ChatHistoryTurn[] {
     return this.messages()
+      // Everything before the break belongs to a previous topic. Slicing here
+      // rather than at send() means the rewriter never sees it either.
+      .slice(this.contextBreakAt())
       .filter((message) => !(message.role === 'assistant' && !message.status))
       .slice(-HISTORY_TURNS)
       .map((message) => ({
@@ -198,6 +223,89 @@ export class ChatStore {
   reset() {
     this.messages.set([WELCOME]);
     this.draft.set('');
+    this.contextBreakAt.set(0);
+    this.clearStorage();
+  }
+
+  /**
+   * Keep the transcript, drop the context.
+   *
+   * The next question is treated as a fresh start: no history is sent, so the
+   * rewriter cannot resolve it against an unrelated earlier topic. Everything
+   * stays on screen, because the reason to read a conversation and the reason to
+   * feed it to a model are not the same reason.
+   */
+  startNewTopic() {
+    this.contextBreakAt.set(this.messages().length);
+    this.persist();
+  }
+
+  /** True when there is earlier conversation that is no longer being used. */
+  readonly hasContextBreak = computed(
+    () => this.contextBreakAt() > 0 && this.contextBreakAt() < this.messages().length,
+  );
+
+  /*
+   * The impure half of persistence. Every one of these swallows its failures.
+   *
+   * localStorage throws in more situations than people expect: quota exceeded,
+   * Safari private browsing, storage disabled by policy, an SSR pass where the
+   * global does not exist at all. None of those are reasons for the chatbot to
+   * stop working, so persistence degrades to "this session only" instead.
+   */
+  private storage(): Storage | null {
+    try {
+      return typeof localStorage === 'undefined' ? null : localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  private persist() {
+    const store = this.storage();
+    if (!store) return;
+    try {
+      const state = serialise(this.messages(), this.contextBreakAt(), this.selectedProvider());
+      store.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      /*
+       * Most likely a quota error despite the message cap. Dropping the save is
+       * the right response: the conversation on screen is unaffected, and the
+       * alternative is an exception in the middle of answering a question.
+       */
+    }
+  }
+
+  private clearStorage() {
+    try {
+      this.storage()?.removeItem(STORAGE_KEY);
+    } catch {
+      /* nothing useful to do, and nothing worth breaking over */
+    }
+  }
+
+  private restore() {
+    const store = this.storage();
+    if (!store) return;
+
+    let raw: string | null = null;
+    try {
+      raw = store.getItem(STORAGE_KEY);
+    } catch {
+      return;
+    }
+
+    const saved = deserialise(raw);
+    if (!saved) return;
+
+    this.messages.set(saved.messages);
+    this.contextBreakAt.set(saved.contextBreakAt);
+    /*
+     * The provider is restored but NOT applied blindly - loadProviders() runs
+     * next and will drop it if that provider is no longer usable. Restoring a
+     * choice that has since run out of credits would resurrect a dead option.
+     */
+    if (saved.provider) this.selectedProvider.set(saved.provider);
   }
 
   async send(question?: string) {
@@ -280,6 +388,9 @@ export class ChatStore {
       void this.loadProviders();
     } finally {
       this.isLoading.set(false);
+      // One save per completed exchange, rather than per signal write. A crash
+      // loses at most the turn in flight, which is the one still on screen.
+      this.persist();
     }
   }
 }

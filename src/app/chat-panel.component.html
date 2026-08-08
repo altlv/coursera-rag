@@ -47,7 +47,22 @@
           }
         }
         @if (store.hasConversation()) {
-          <button class="rail-icon-button" type="button" (click)="store.reset()" title="Clear conversation">
+          <!--
+            Two different things, deliberately separate. "New topic" stops earlier
+            questions being used as context for the next one while leaving the
+            transcript readable; "Clear" throws the conversation away. Before this
+            the only way to unlink context was to delete everything.
+          -->
+          <button
+            class="rail-icon-button"
+            type="button"
+            (click)="store.startNewTopic()"
+            [disabled]="store.inContext() === 0"
+            title="Start a new topic: the next question will not be answered in the context of the ones above"
+          >
+            New topic
+          </button>
+          <button class="rail-icon-button" type="button" (click)="store.reset()" title="Clear the conversation entirely">
             Clear
           </button>
         }
@@ -59,6 +74,16 @@
 
     <div class="rail-scroll" #scroller>
       @for (message of store.messages(); track $index) {
+        <!--
+          The break is drawn where it actually takes effect, so "these messages are
+          no longer context" is visible rather than something the user has to
+          remember having clicked.
+        -->
+        @if (store.hasContextBreak() && $index === store.contextBreakAt()) {
+          <div class="context-break" role="separator">
+            <span>New topic &mdash; earlier messages are no longer used as context</span>
+          </div>
+        }
         <article
           class="bubble"
           [class.user]="message.role === 'user'"

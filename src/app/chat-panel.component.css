@@ -183,10 +183,45 @@
   font-size: 0.8rem;
 }
 
-.rail-icon-button:hover {
+.rail-icon-button:hover:not(:disabled) {
   background: var(--color-brand-wash);
   border-color: var(--color-brand-ring);
   color: var(--color-brand-strong);
+}
+
+/*
+ * "New topic" is disabled when nothing is in context - there is no topic to end.
+ * Kept visible rather than hidden so the control does not appear and disappear as
+ * the conversation changes shape.
+ */
+.rail-icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+ * The context break. Reads as a divider rather than a message, because it is a
+ * statement about the conversation rather than part of it.
+ */
+.context-break {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  color: var(--color-text-subtle);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.context-break::before,
+.context-break::after {
+  content: '';
+  flex: 1;
+  border-top: 1px dashed var(--color-border);
+}
+
+.context-break span {
+  flex: 0 1 auto;
 }
 
 /* ---------- Messages ---------- */
