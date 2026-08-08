@@ -1,5 +1,5 @@
 const { supersededApiNote } = require('./api-pairs');
-const { neutralisePassages, looksInjected } = require('./injection-guard');
+const { neutralisePassages, looksInjected, matchesKnownPayload } = require('./injection-guard');
 const { verifyAttribution, validateCodeSamples } = require('./answer-checks');
 
 /*
@@ -962,6 +962,44 @@ async function generateAnswer({
     };
   }
 
+  return finaliseAnswer({ text, chunks, knownIdentifiers, canonicalSpellings });
+}
+
+/**
+ * Turn raw model output into a validated result.
+ *
+ * Shared by generateAnswer and streamAnswer so the two cannot drift. That matters
+ * more than tidiness: if streaming had its own copy of this, streaming would
+ * eventually become a way to bypass a guard - not by anyone deciding it should,
+ * but by one of the two paths gaining a check the other missed.
+ */
+function finaliseAnswer({ text, chunks, knownIdentifiers = null, canonicalSpellings = null }) {
+  if (!text || text.includes(NO_ANSWER_SENTINEL)) {
+    return {
+      status: 'partial',
+      answer: PARTIAL_ANSWER,
+      citations: [],
+      refused: false,
+      llmCalled: true,
+    };
+  }
+
+  const cited = extractCitations(text);
+  const valid = cited.filter((n) => n >= 1 && n <= chunks.length);
+  const invalid = cited.filter((n) => !valid.includes(n));
+
+  const injection = looksInjected(text, { citations: valid, hadChunks: true });
+  if (injection.suspicious) {
+    return {
+      status: 'refused',
+      answer: REFUSAL,
+      citations: [],
+      refused: true,
+      llmCalled: true,
+      injectionSuspected: injection.reasons,
+    };
+  }
+
   // Remove citations that don't correspond to a supplied passage.
   const answer = invalid
     .reduce((acc, n) => acc.replaceAll(`[${n}]`, ''), text)
@@ -994,6 +1032,91 @@ async function generateAnswer({
     codeSamples,
     refused: false,
     llmCalled: true,
+  };
+}
+
+/**
+ * The same answer, delivered as it is written.
+ *
+ * A 3-8 second wait with no feedback reads as broken. Streaming fixes the feel of
+ * it and creates one real problem, which is worth stating plainly rather than
+ * discovering later:
+ *
+ *   EVERY OUTPUT-SIDE GUARD RUNS AFTER THE MODEL HAS FINISHED. The injection
+ *   detector can refuse a whole answer and citation stripping edits the text - but
+ *   by then the user has already read it. Streaming genuinely weakens the output
+ *   half of the injection defence.
+ *
+ * Two things reduce that, and neither restores the guarantee:
+ *
+ *   1. The known-payload patterns run INCREMENTALLY on the accumulated text, so a
+ *      captured answer is cut off at the first sign rather than after the last
+ *      token. A payload complete in the first chunk still gets through to the eye.
+ *      Only the payload patterns can run this way - looksInjected's "short and
+ *      uncited" rule would fire on the opening words of every honest answer.
+ *   2. The final event carries the VALIDATED text, and the client replaces what it
+ *      displayed. An invalid citation is therefore visible briefly and then
+ *      corrected, rather than left standing.
+ *
+ * Yields `{type:'delta'}` events, then exactly one `{type:'final'}` - or a
+ * `{type:'error'}` if the provider fails mid-stream, so a client is never left
+ * waiting for a final event that is not coming.
+ */
+async function* streamAnswer({
+  question,
+  chunks,
+  llm,
+  history = [],
+  provider,
+  knownIdentifiers = null,
+  canonicalSpellings = null,
+}) {
+  if (!chunks || chunks.length === 0) {
+    // Same free refusal as the non-streaming path: the model is never called.
+    yield {
+      type: 'final',
+      status: 'refused',
+      answer: REFUSAL,
+      citations: [],
+      refused: true,
+      llmCalled: false,
+    };
+    return;
+  }
+
+  const prompt = buildPrompt(question, chunks, { history, provider: provider ?? llm?.provider });
+
+  let text = '';
+  try {
+    for await (const delta of llm.stream(prompt)) {
+      if (!delta) continue;
+      text += delta;
+
+      const payload = matchesKnownPayload(text);
+      if (payload) {
+        // Stop immediately - do not forward this delta, and do not keep going.
+        yield {
+          type: 'final',
+          status: 'refused',
+          answer: REFUSAL,
+          citations: [],
+          refused: true,
+          llmCalled: true,
+          injectionSuspected: [payload],
+        };
+        return;
+      }
+
+      yield { type: 'delta', text: delta };
+    }
+  } catch (error) {
+    yield { type: 'error', message: error.message };
+    return;
+  }
+
+  yield {
+    type: 'final',
+    ...finaliseAnswer({ text: text.trim(), chunks, knownIdentifiers, canonicalSpellings }),
   };
 }
 
@@ -1204,6 +1327,8 @@ module.exports = {
   buildPrompt,
   extractCitations,
   generateAnswer,
+  streamAnswer,
+  finaliseAnswer,
   createOpenAiLlm,
   SYSTEM_PROMPT,
   REFUSAL,

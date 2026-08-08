@@ -103,6 +103,26 @@ const SUSPICIOUS_ANSWER_PATTERNS = [
 ];
 
 /**
+ * Only the known-payload patterns, for checking an answer WHILE it streams.
+ *
+ * looksInjected cannot be used incrementally: its "very short and cites nothing"
+ * rule would fire on the first few tokens of every legitimate answer, since a
+ * partial answer is by definition short and has not reached its citations yet.
+ *
+ * The payload patterns have no such problem - they match content that is never
+ * legitimate at any length - so they are the part that can run on a partial
+ * answer. The length heuristic still runs once at the end, on the whole text.
+ */
+function matchesKnownPayload(answer) {
+  const text = (answer || '').trim();
+  if (!text) return null;
+  for (const pattern of SUSPICIOUS_ANSWER_PATTERNS) {
+    if (pattern.test(text)) return 'answer matches a known injection payload';
+  }
+  return null;
+}
+
+/**
  * Does this answer look like the passages captured the model?
  *
  * The heuristics are intentionally conservative. A very short uncited answer is
@@ -132,5 +152,6 @@ module.exports = {
   neutralisePassage,
   neutralisePassages,
   looksInjected,
+  matchesKnownPayload,
   SUSPICIOUS_ANSWER_PATTERNS,
 };

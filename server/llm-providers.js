@@ -305,6 +305,43 @@ function createLlm({
 
       throw lastError;
     },
+
+    /**
+     * The same call, delivered incrementally.
+     *
+     * Deliberately NOT retried. `complete` can retry safely because nothing has
+     * been shown to the user yet; once deltas have been forwarded, a retry would
+     * either duplicate text or silently replace what was already on screen. A
+     * stream that breaks mid-answer surfaces as an error and the user re-asks -
+     * which is honest, where a half-answer stitched to a second attempt is not.
+     *
+     * Usage is only available on the final chunk, and only when explicitly asked
+     * for, so `stream_options` is set - otherwise the spend ledger would silently
+     * record nothing for every streamed answer.
+     */
+    async *stream({ system, user }) {
+      this.lastAttempts = 1;
+      const response = await client.chat.completions.create(
+        {
+          model: chatModel,
+          temperature,
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: [
+            { role: 'system', content: system },
+            { role: 'user', content: user },
+          ],
+        },
+        { timeout: timeoutMs },
+      );
+
+      for await (const part of response) {
+        // The usage-bearing chunk has no choices, so this must not assume one.
+        if (part.usage) this.lastUsage = part.usage;
+        const delta = part.choices?.[0]?.delta?.content;
+        if (delta) yield delta;
+      }
+    },
   };
 }
 
