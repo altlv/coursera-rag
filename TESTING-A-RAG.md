@@ -535,6 +535,93 @@ slow down and retry; `402` means the budget is gone and retrying is pointless.
 A client that cannot tell them apart will hammer a ceiling that will not move
 until midnight.
 
+## Testing a streaming answer
+
+Streaming is where a RAG system is most likely to acquire a security hole by
+accident, because **every output-side guard runs after the model finishes** and
+streaming shows the user text before that happens.
+
+### Assert the guard still runs, and that it runs early
+
+```python
+async def test_stream_stops_as_soon_as_the_answer_looks_captured():
+    llm = fake_stream(["PWNED", " and more text", " and yet more"])
+    deltas, final = await collect(stream_answer(question, chunks, llm))
+
+    assert len(deltas) < 3          # cut off, not merely refused afterwards
+    assert final.status == "refused"
+    assert "PWNED" not in final.answer
+```
+
+⚙️ Post-hoc refusal is much weaker than an early cut. Test the *timing*, not just
+the verdict — `len(deltas) < 3` is the assertion that distinguishes them.
+
+### Watch for the guard that cannot run incrementally
+
+📐 A real trap. The injection heuristic here also flags an answer that is "very
+short and cites nothing" — which describes the opening words of **every** honest
+answer. Run the whole guard per-chunk and it fires on all of them.
+
+⚙️ So split it: the checks that are valid on a partial answer run incrementally,
+and the ones that need the whole text run once at the end. Test both halves, and
+add the test that would have caught the naive version:
+
+```python
+def test_incremental_check_does_not_fire_on_an_honest_opening():
+    assert matches_known_payload("Signals are") is None
+```
+
+### One finaliser, shared
+
+⚙️ The streaming and non-streaming paths must run the **same** post-generation
+checks, from the same code. Two copies drift, and the way they drift is that one
+path gains a guard the other missed. Assert it directly:
+
+```python
+async def test_streaming_runs_the_same_checks_as_the_blocking_path():
+    _, final = await collect(stream_answer(question, chunks, fake_stream(["Use computed() [1]."])))
+    assert final.attribution is not None
+    assert final.code_samples is not None
+```
+
+### The final event must be able to correct what was shown
+
+⚙️ Deltas are unvalidated by definition. Test that the final event carries the
+*corrected* text and that a client replacing its display would fix the problem:
+
+```python
+async def test_final_event_carries_validated_text_not_raw():
+    deltas, final = await collect(stream_answer(q, two_chunks, fake_stream(["Use it [1]", " and [7]."])))
+    assert "[7]" in "".join(deltas)      # the user saw it
+    assert "[7]" not in final.answer     # and it is corrected
+```
+
+### Three failure modes worth their own tests
+
+| Test | Why |
+| --- | --- |
+| Exactly one final event, and it is last | The client replaces its display from it; a missing one leaves unvalidated text on screen |
+| Mid-stream provider failure yields an `error` event | Otherwise the client waits forever for a final that is not coming |
+| Empty stream is `partial`, not a blank answer | A stream that yields nothing must not render as a successful empty answer |
+
+### Do not retry a stream
+
+⚙️ Retrying is safe only while nothing has been shown. After deltas are out, a
+retry either duplicates text or silently replaces what was read. If your
+non-streaming path retries, assert that the streaming one does **not**.
+
+### Check the transport, not just the logic
+
+⚙️ Two things unit tests cannot see, both of which are silent when wrong:
+
+- **Usage/token accounting.** Streaming APIs often report usage only on the final
+  chunk, and only if asked. 📐 Without `stream_options: {include_usage: true}` the
+  spend ledger recorded **nothing** for every streamed answer — a cost control
+  that had quietly stopped counting.
+- **Frame reassembly.** A network chunk can split an SSE frame mid-JSON. Buffer
+  and take complete frames from the front; parsing whatever arrived is the classic
+  bug. Verify against a real stream and count: 📐 158 frames, zero unparseable.
+
 ## How to know your measurement is broken
 
 ⚙️ This section is the one I would keep if I could keep only one. **A failing

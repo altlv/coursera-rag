@@ -59,6 +59,8 @@ export interface ChatMessage {
   questionId?: string;
   /** The user's verdict, once given. Kept so the UI can show it was recorded. */
   rating?: 'up' | 'down';
+  /** True while text is still arriving, so the UI can show a cursor. */
+  streaming?: boolean;
 }
 
 const WELCOME: ChatMessage = {
@@ -114,6 +116,12 @@ export class ChatStore {
    * before this there was no way to say so short of wiping the conversation.
    */
   readonly contextBreakAt = signal(0);
+
+  /*
+   * Lets an in-flight answer be abandoned. A streamed answer can run for many
+   * seconds, and without this the only way to stop one is to close the tab.
+   */
+  private abort: AbortController | null = null;
 
   constructor() {
     this.restore();
@@ -240,6 +248,18 @@ export class ChatStore {
     this.persist();
   }
 
+  /**
+   * Abandon an answer in progress.
+   *
+   * The partial text is kept rather than discarded. It was already read, and
+   * removing it would make the button feel like it undid something the user did
+   * not ask to undo - they asked it to stop, not to erase.
+   */
+  stop() {
+    this.abort?.abort();
+    this.abort = null;
+  }
+
   /** True when there is earlier conversation that is no longer being used. */
   readonly hasContextBreak = computed(
     () => this.contextBreakAt() > 0 && this.contextBreakAt() < this.messages().length,
@@ -318,34 +338,95 @@ export class ChatStore {
     this.draft.set('');
     this.isLoading.set(true);
 
+    const history = this.historyForRequest();
+    const provider = this.selectedProvider() ?? undefined;
+    this.abort = new AbortController();
+
     try {
-      const response = await this.chatService.ask(
+      /*
+       * The assistant bubble is created empty and filled as text arrives. `index`
+       * is captured now because later updates address it directly - the array is
+       * replaced on every delta, so holding a reference to the object would update
+       * a copy nobody is rendering.
+       */
+      let index = -1;
+      this.messages.update((list) => {
+        index = list.length;
+        return [...list, { role: 'assistant', text: '', streaming: true }];
+      });
+
+      const patch = (change: Partial<ChatMessage>) =>
+        this.messages.update((list) =>
+          list.map((m, i) => (i === index ? { ...m, ...change } : m)),
+        );
+
+      for await (const event of this.chatService.askStream(
         text,
-        this.selectedProvider() ?? undefined,
-        this.historyForRequest(),
-      );
-      this.messages.update((list) => [
-        ...list,
-        {
-          role: 'assistant',
-          text: response.answer,
-          status: response.status ?? 'answered',
-          confidence: response.confidence,
-          rewrite: response.rewrite,
-          questionId: response.questionId,
-          retrieved: response.retrieved,
-          promptTokens: response.usage?.prompt_tokens,
-          provider: response.provider ?? undefined,
-          providerLabel: response.providerLabel ?? undefined,
-          model: response.model ?? undefined,
-          sources: response.sources.map((source) => ({
-            title: source.title,
-            path: source.path,
-            originalUrl: source.originalUrl,
-          })),
-        },
-      ]);
+        provider,
+        history,
+        this.abort.signal,
+      )) {
+        if (event.type === 'start') {
+          patch({
+            provider: event.provider,
+            providerLabel: event.providerLabel,
+            model: event.model,
+            rewrite: event.rewrite,
+          });
+        } else if (event.type === 'delta') {
+          this.messages.update((list) =>
+            list.map((m, i) => (i === index ? { ...m, text: m.text + event.text } : m)),
+          );
+        } else if (event.type === 'final') {
+          /*
+           * REPLACE the streamed text rather than appending. The deltas were
+           * unvalidated: an out-of-range citation is still in them, and an answer
+           * the injection guard refused may have been partly shown. This is the
+           * moment that gets corrected.
+           */
+          patch({
+            text: event.answer,
+            status: event.status,
+            streaming: false,
+          });
+        } else if (event.type === 'meta') {
+          patch({
+            questionId: event.questionId,
+            confidence: event.confidence,
+            retrieved: event.retrieved,
+            promptTokens: event.usage?.prompt_tokens,
+            sources: (event.sources ?? []).map((source) => ({
+              title: source.title,
+              path: source.path,
+              originalUrl: source.originalUrl,
+            })),
+          });
+        } else if (event.type === 'error') {
+          throw new Error(event.message);
+        }
+      }
+
+      // A stream that ended without a final event left the bubble mid-answer.
+      // Marking it finished is better than a spinner that never stops.
+      patch({ streaming: false });
     } catch (error) {
+      // Drop the empty or partial bubble; the catch below adds an error one.
+      this.messages.update((list) =>
+        list.filter((m) => !(m.role === 'assistant' && m.streaming && !m.text)),
+      );
+
+      /*
+       * A cancellation is not a failure. The user asked it to stop, so the partial
+       * answer stays and no error bubble is added - showing "request aborted" for
+       * something they deliberately did would be noise.
+       */
+      if ((error as Error)?.name === 'AbortError') {
+        this.messages.update((list) =>
+          list.map((m) => (m.streaming ? { ...m, streaming: false } : m)),
+        );
+        return;
+      }
+
       /*
        * Turn a provider failure into something actionable.
        *

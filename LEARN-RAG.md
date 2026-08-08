@@ -662,6 +662,28 @@ Three more, each a consequence of taking failure seriously:
 
 **The honest limit:** the price table is a static estimate that will go stale, so the dollar figure is approximate. The token counts underneath it are exact.
 
+### Streaming, and the guard it weakens
+
+A 3–8 second wait with no feedback reads as broken, so answers now stream. The plumbing is unremarkable; the trade-off is not, and it is worth stating rather than discovering.
+
+**Every output-side guard runs after the model finishes.** The injection detector can refuse a whole answer; citation stripping edits the text. Stream the tokens and the user has already read them by the time either runs. **Streaming genuinely weakens the output half of the [injection defence](#prompt-injection-and-why-the-model-handled-it-is-not-a-defence).**
+
+Two mitigations, neither of which restores the guarantee:
+
+1. **The known-payload patterns run incrementally** on the accumulated text, so a captured answer is cut off at the first sign rather than after the last token. A payload complete in the first chunk still reaches the eye.
+2. **The final event carries the validated text** and the client replaces what it displayed, so an out-of-range citation is visible briefly and then corrected.
+
+⚙️ Only *part* of the guard can work incrementally, and noticing which part matters. `looksInjected` also flags an answer that is "very short and cites nothing" — which is true of the opening words of **every** honest answer, since a partial answer is short by definition and has not reached its citations yet. So the payload patterns were split out for the streaming case, and the length heuristic still runs once on the whole text.
+
+**One shared finaliser.** `generateAnswer` and `streamAnswer` now share everything after generation. That is not tidiness: with two copies, streaming would eventually become a way to bypass a check — not by anyone deciding it should, but by one path gaining a guard the other missed. A test asserts the streaming path runs attribution and code validation too.
+
+**Not retried, unlike the non-streaming call.** Retrying is safe only while nothing has been shown. Once deltas are out, a retry either duplicates text or silently replaces what was on screen, so a broken stream surfaces as an error and the user re-asks.
+
+Two details that would have been silent bugs:
+
+- **`stream_options: { include_usage: true }`** — usage arrives only on the final chunk, and only when asked for. Without it the spend ledger records **nothing** for every streamed answer, and the ceiling quietly stops counting the thing it exists to count.
+- **SSE frames must be reassembled.** A network chunk can split a frame anywhere, including mid-JSON, so complete frames are taken from the front of a buffer and the remainder kept. Parsing whatever happened to arrive is the classic streaming bug. Verified on a real stream: 158 frames, zero unparseable.
+
 ## Silent failures
 
 The failures worth engineering against are the ones that return plausible output while being wrong. Embedding-space mismatch is guarded six ways:

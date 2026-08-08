@@ -52,6 +52,35 @@ export interface ChatConfidence {
  */
 export type ChatStatus = 'answered' | 'partial' | 'refused';
 
+/**
+ * One event from /api/chat/stream.
+ *
+ * The ordering the server guarantees: one `start`, zero or more `delta`, then
+ * either `final` (followed by `meta`) or `error`. A consumer must replace what it
+ * displayed with `final.answer`, because deltas are UNVALIDATED - citations
+ * outside the supplied range are still in them, and an answer the injection guard
+ * refuses may have been partly streamed.
+ */
+export type StreamEvent =
+  | { type: 'start'; provider?: string; providerLabel?: string; model?: string; mode?: 'vector' | 'lexical'; rewrite?: ChatRewrite | null }
+  | { type: 'delta'; text: string }
+  | {
+      type: 'final';
+      status: ChatStatus;
+      answer: string;
+      citations?: number[];
+      injectionSuspected?: string[];
+    }
+  | {
+      type: 'meta';
+      questionId?: string;
+      confidence?: ChatConfidence;
+      sources?: ChatSource[];
+      retrieved?: ChatRetrieved[];
+      usage?: ChatResponse['usage'];
+    }
+  | { type: 'error'; message: string };
+
 export interface ChatResponse {
   question: string;
   answer: string;
@@ -200,5 +229,90 @@ export class ChatService {
     }
 
     return await response.json();
+  }
+
+  /**
+   * The same question, consumed as it is written.
+   *
+   * `fetch` with a ReadableStream rather than EventSource, for two reasons:
+   * EventSource cannot POST (so the question would have to go in the URL, where
+   * it would land in access logs), and its automatic reconnection would silently
+   * re-ask a question that costs money.
+   *
+   * Errors are surfaced through the same shape as `ask`, so the store's existing
+   * handling for rate limits, spend limits and dead providers applies unchanged.
+   */
+  async *askStream(
+    question: string,
+    provider?: string,
+    history: ChatHistoryTurn[] = [],
+    signal?: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const response = await fetch('/api/chat/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question,
+        ...(provider ? { provider } : {}),
+        ...(history.length ? { history } : {}),
+      }),
+      signal,
+    });
+
+    if (!response.ok || !response.body) {
+      // A guard rejection (429/402/413) arrives as ordinary JSON, not as a stream.
+      let payload: Partial<ChatErrorPayload> | null = null;
+      try {
+        payload = await response.json();
+      } catch {
+        /* not JSON - fall through to a generic message */
+      }
+      const error = new Error(
+        payload?.error || `Request failed (${response.status} ${response.statusText}).`,
+      ) as ChatError;
+      error.provider = payload?.provider;
+      error.errorKind = payload?.errorKind;
+      error.permanent = payload?.permanent;
+      throw error;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        /*
+         * SSE frames are separated by a blank line, and a network chunk can split
+         * one anywhere - including mid-JSON. So complete frames are taken from the
+         * front and the remainder is kept for the next read. Parsing whatever
+         * happens to have arrived is the classic streaming bug.
+         */
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary !== -1) {
+          const frame = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          boundary = buffer.indexOf('\n\n');
+
+          const line = frame.split('\n').find((l) => l.startsWith('data: '));
+          if (!line) continue;
+          try {
+            yield JSON.parse(line.slice(6)) as StreamEvent;
+          } catch {
+            // A malformed frame is skipped rather than aborting the stream: the
+            // rest of the answer is still worth showing.
+          }
+        }
+      }
+    } finally {
+      // Releases the connection when the consumer stops early - a cancelled
+      // request must not leave the socket open.
+      reader.releaseLock();
+    }
   }
 }

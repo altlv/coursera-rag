@@ -381,8 +381,9 @@ export const ROADMAP: RoadmapPhase[] = [
       },
       {
         title: 'Stream answers',
-        detail: 'Render tokens as they arrive instead of 2-4 seconds of dead air.',
-        status: 'todo',
+        detail:
+          'Answers arrive as they are written, over SSE. The plumbing is unremarkable; the trade-off is not. EVERY output-side guard runs after the model finishes - the injection detector can refuse a whole answer and citation stripping edits the text - so streaming genuinely weakens the output half of the injection defence. Two mitigations, neither restoring the guarantee: the known-payload patterns run INCREMENTALLY so a captured answer is cut off at the first sign rather than after the last token, and the final event carries the VALIDATED text which the client uses to replace what it displayed. Only part of the guard can run incrementally - looksInjected also flags an answer that is very short and cites nothing, which describes the opening words of every honest answer - so the payload patterns were split out and the length heuristic still runs once on the whole text. generateAnswer and streamAnswer share one finaliser, because two copies would drift until one path gained a guard the other missed. Streams are deliberately NOT retried: retrying is safe only while nothing has been shown. Two details that would have been silent: stream_options.include_usage, without which the spend ledger recorded nothing for every streamed answer, and SSE frame reassembly, since a network chunk can split a frame mid-JSON. Verified on a real stream at 158 frames with zero unparseable.',
+        status: 'done',
       },
       {
         title: 'Fix the leaking docs subscription',
@@ -401,8 +402,8 @@ export const ROADMAP: RoadmapPhase[] = [
       {
         title: 'Persist the conversation and allow cancelling',
         detail:
-          'The rail survives navigation but not a reload. And isLoading BLOCKS a second question rather than cancelling the first, which an AbortController would handle properly.',
-        status: 'todo',
+          'Saved to localStorage rather than the server, so the full text of every question and answer stays on the machine that produced it - the question log deliberately stores metadata for exactly that reason. The serialise/deserialise logic is pure and separately tested, and every rule is about distrust: a schema version so old data is discarded rather than migrated, deserialise never throws and returns null for anything untrusted (it runs while constructing a root service, so an exception takes down the app over a bad string in storage), error bubbles are not saved since restoring one presents a stale failure as current, and the transcript is capped at 60 messages because an unbounded one throws a quota error on WRITE. Every localStorage call is wrapped for Safari private browsing, storage disabled by policy and SSR. A restored provider is not applied blindly - loadProviders drops it if it is no longer usable. Cancelling keeps the partial text: the user asked it to stop, not to erase.',
+        status: 'done',
       },
     ],
   },

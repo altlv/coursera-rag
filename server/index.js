@@ -9,6 +9,7 @@ const {
   selectChunksMultiQuery,
   assessConfidence,
   generateAnswer,
+  streamAnswer,
   rewriteQuestion,
   HISTORY_EXCHANGES,
   REFUSAL,
@@ -665,94 +666,102 @@ app.get('/api/providers', async () => {
   };
 });
 
-app.post('/api/chat', async (request, reply) => {
-  const startedAt = Date.now();
-
-  /*
-   * Both cost controls are enforced HERE, before embedding, retrieval or
-   * generation. Checking after the fact means the request that breached the
-   * ceiling has already been paid for.
-   */
+/**
+ * Guards and input validation, shared by /api/chat and /api/chat/stream.
+ *
+ * Extracted rather than duplicated because these are the CO ST controls. Two
+ * copies would drift, and the way they drift is that one endpoint quietly stops
+ * enforcing a limit - which is exactly the failure a spend ceiling exists to
+ * prevent.
+ *
+ * Returns `{ error: { status, body } }` for a rejection, or the validated inputs.
+ * The status and body are returned rather than written, because the two endpoints
+ * report failure differently: one as JSON, one as an SSE event.
+ */
+function guardChatRequest(request) {
   const limit = rateLimiter.check(request.ip);
   if (!limit.allowed) {
-    reply.status(429);
-    reply.header('Retry-After', Math.ceil(limit.retryAfterMs / 1000));
     return {
-      error: 'Too many questions in a short time. Wait a moment and try again.',
-      /*
-       * Distinct from the provider's own 'rate-limit'. That one is worth
-       * suggesting a different provider for; this one is our limit, so switching
-       * would not help and saying so would be misleading advice.
-       */
-      errorKind: 'too-many-requests',
-      retryAfterMs: limit.retryAfterMs,
+      error: {
+        status: 429,
+        retryAfterSeconds: Math.ceil(limit.retryAfterMs / 1000),
+        body: {
+          error: 'Too many questions in a short time. Wait a moment and try again.',
+          /*
+           * Distinct from the provider's own 'rate-limit'. That one is worth
+           * suggesting a different provider for; this one is our limit, so
+           * switching would not help and saying so would be misleading advice.
+           */
+          errorKind: 'too-many-requests',
+          retryAfterMs: limit.retryAfterMs,
+        },
+      },
     };
   }
 
   const budget = spendLimiter.check();
   if (!budget.allowed) {
     /*
-     * 402 rather than 429: this is not a "slow down", it is "the budget for today
-     * is gone". Distinguishing them matters because the client should not retry.
-     */
-    reply.status(402);
-    /*
-     * Two decimals for a normal limit, more for a sub-cent one - otherwise a limit
-     * of $0.0001 is reported as "the limit of $0.00 has been reached", which reads
-     * as a bug rather than a setting.
+     * Two decimals for a normal limit, more for a sub-cent one - otherwise a
+     * limit of $0.0001 reads as "the limit of $0.00 has been reached", which
+     * looks like a bug rather than a setting.
      */
     const money = (n) => (n >= 0.01 ? n.toFixed(2) : n.toPrecision(2));
     return {
-      error:
-        `The daily spend limit of $${money(budget.limitUsd)} has been reached ` +
-        `(estimated $${money(budget.spentUsd)} used). It resets at midnight UTC.`,
-      errorKind: 'spend-limit',
-      permanent: true,
-      spentUsd: Number(budget.spentUsd.toFixed(4)),
-      limitUsd: budget.limitUsd,
+      error: {
+        // 402, not 429: this is not "slow down", it is "the budget for today is
+        // gone". The client should not retry, and the code says so.
+        status: 402,
+        body: {
+          error:
+            `The daily spend limit of $${money(budget.limitUsd)} has been reached ` +
+            `(estimated $${money(budget.spentUsd)} used). It resets at midnight UTC.`,
+          errorKind: 'spend-limit',
+          permanent: true,
+          spentUsd: Number(budget.spentUsd.toFixed(4)),
+          limitUsd: budget.limitUsd,
+        },
+      },
     };
   }
 
   const { question } = request.body || {};
   if (!question || typeof question !== 'string' || !question.trim()) {
-    reply.status(400);
-    return { error: 'question is required' };
+    return { error: { status: 400, body: { error: 'question is required' } } };
   }
 
   /*
-   * Reject an over-long question rather than embedding it.
-   *
-   * Only a non-empty string was checked before, so a 50,000-character body went
-   * straight into an embedding call and then into the prompt - a cost and context
-   * blowout with nothing to stop it. A real question about Angular does not need
-   * 2,000 characters, and anything longer is either a paste accident or abuse.
+   * Reject an over-long question rather than embedding it. Only a non-empty
+   * string was checked once, so a 50,000-character body went straight into an
+   * embedding call and then the prompt - a cost and context blowout with nothing
+   * to stop it.
    */
   if (question.length > MAX_QUESTION_CHARS) {
-    reply.status(413);
     return {
-      error: `Question is too long (${question.length} characters, limit ${MAX_QUESTION_CHARS}). Ask something shorter.`,
+      error: {
+        status: 413,
+        body: {
+          error: `Question is too long (${question.length} characters, limit ${MAX_QUESTION_CHARS}). Ask something shorter.`,
+        },
+      },
     };
   }
 
-  /*
-   * ---- Working memory ----------------------------------------------------
-   *
-   * A follow-up like "what about effects?" carries almost nothing searchable, so
-   * it is rewritten into a standalone question BEFORE retrieval.
-   *
-   * The rewriter is PINNED to one provider, deliberately independent of
-   * CHAT_PROVIDER - the same reasoning as embeddings. If it followed the chat
-   * provider, retrieval would change with the model, and comparing providers on
-   * identical passages would no longer be possible.
-   */
-  /*
-   * History arrives from the client, so it is bounded here rather than trusted.
-   * The frontend already sends only the last 3 exchanges, but a request can claim
-   * anything - and an unbounded history is the same prompt-blowout risk as an
-   * unbounded question, just via a different field.
-   */
-  const history = (Array.isArray(request.body?.history) ? request.body.history : [])
-    .filter((turn) => turn && typeof turn.text === 'string' && (turn.role === 'user' || turn.role === 'assistant'))
+  return { question };
+}
+
+/**
+ * History arrives from the client, so it is bounded here rather than trusted.
+ * The frontend sends only the last 3 exchanges, but a request can claim anything -
+ * an unbounded history is the same prompt-blowout risk as an unbounded question,
+ * reached through a different field.
+ */
+function boundHistory(body) {
+  return (Array.isArray(body?.history) ? body.history : [])
+    .filter(
+      (turn) =>
+        turn && typeof turn.text === 'string' && (turn.role === 'user' || turn.role === 'assistant'),
+    )
     .slice(-MAX_HISTORY_TURNS)
     .map((turn) => ({
       role: turn.role,
@@ -762,6 +771,10 @@ app.post('/api/chat', async (request, reply) => {
         ? { paths: turn.paths.filter((p) => typeof p === 'string').slice(0, 10) }
         : {}),
     }));
+}
+
+/** Rewrite a follow-up into a standalone question, and retrieve for it. */
+async function retrieveFor(question, history) {
   let searchQuestion = question;
   let rewrite = null;
 
@@ -769,8 +782,6 @@ app.post('/api/chat', async (request, reply) => {
     try {
       const rewriter = createLlm({ provider: process.env.REWRITE_PROVIDER || 'openai' });
       const result = await rewriteQuestion({ question, history, llm: rewriter });
-      // The rewrite is a real model call. Leaving it out would understate spend on
-      // exactly the conversations that make the most of them.
       spendLimiter.record(rewriter.model, rewriter.lastUsage);
       searchQuestion = result.question;
       if (result.rewritten) {
@@ -778,32 +789,58 @@ app.post('/api/chat', async (request, reply) => {
         app.log.info(`Rewrote "${result.original}" -> "${result.question}"`);
       }
     } catch (error) {
-      // A failed rewrite must never block an answer: searching the raw question
-      // is worse than searching a resolved one, but far better than an error.
       app.log.warn(`Query rewrite failed, using the question as typed: ${error.message}`);
     }
   }
 
-  // ---- Stage 4: retrieve -------------------------------------------------
   let results = [];
   let mode = 'lexical';
-
   try {
     if (embeddingClient && (await loadVectorStore())) {
-      // Both formulations when a rewrite happened; just the one otherwise.
-      const formulations =
-        searchQuestion === question ? [question] : [question, searchQuestion];
+      const formulations = searchQuestion === question ? [question] : [question, searchQuestion];
       results = await searchVectors(formulations, TOP_K);
       mode = 'vector';
     }
   } catch (error) {
     app.log.warn(`Vector search failed, falling back to lexical: ${error.message}`);
   }
-
   if (!results.length && mode !== 'vector') {
     results = await searchDocs(searchQuestion, TOP_K);
     mode = 'lexical';
   }
+
+  return { results, mode, rewrite, searchQuestion };
+}
+
+app.post('/api/chat', async (request, reply) => {
+  const startedAt = Date.now();
+
+  /*
+   * Both cost controls are enforced HERE, before embedding, retrieval or
+   * generation. Checking after the fact means the request that breached the
+   * ceiling has already been paid for.
+   */
+  const guarded = guardChatRequest(request);
+  if (guarded.error) {
+    reply.status(guarded.error.status);
+    if (guarded.error.retryAfterSeconds) {
+      reply.header('Retry-After', guarded.error.retryAfterSeconds);
+    }
+    return guarded.error.body;
+  }
+  const { question } = guarded;
+
+  /*
+   * ---- Working memory and retrieval --------------------------------------
+   *
+   * A follow-up like "what about effects?" carries almost nothing searchable, so
+   * it is rewritten into a standalone question BEFORE retrieval. The rewriter is
+   * PINNED to one provider, independent of CHAT_PROVIDER - the same reasoning as
+   * embeddings. If it followed the chat provider, retrieval would change with the
+   * model and comparing providers on identical passages would be meaningless.
+   */
+  const history = boundHistory(request.body);
+  const { results, mode, rewrite } = await retrieveFor(question, history);
 
   // ---- Stage 5: generate -------------------------------------------------
   // Without any provider key we cannot write an answer, so say so plainly rather
@@ -993,6 +1030,158 @@ app.post('/api/chat', async (request, reply) => {
       snippet: (result.snippet || result.text || '').slice(0, 400),
     })),
   };
+});
+
+/**
+ * The same answer, streamed.
+ *
+ * Server-Sent Events rather than a WebSocket: the traffic is one-directional and
+ * short-lived, SSE is plain HTTP so the dev proxy needs no special handling, and
+ * the browser reconnect logic that makes EventSource awkward is avoided by using
+ * fetch with a ReadableStream on the client.
+ *
+ * Every event is one JSON object on a `data:` line:
+ *
+ *   {"type":"delta","text":"..."}     zero or more, as the model writes
+ *   {"type":"final", ...}             exactly one, with the VALIDATED answer
+ *   {"type":"error","message":"..."}  instead of final, if generation failed
+ *
+ * The client must replace what it has displayed with `final.answer`, because the
+ * deltas are unvalidated - see streamAnswer in rag.js for why that matters and
+ * what it costs.
+ */
+app.post('/api/chat/stream', async (request, reply) => {
+  const startedAt = Date.now();
+
+  // Identical guards to /api/chat, from the same function - see guardChatRequest
+  // for why these are shared rather than copied.
+  const guarded = guardChatRequest(request);
+  if (guarded.error) {
+    reply.status(guarded.error.status);
+    if (guarded.error.retryAfterSeconds) {
+      reply.header('Retry-After', guarded.error.retryAfterSeconds);
+    }
+    return guarded.error.body;
+  }
+  const { question } = guarded;
+
+  reply.raw.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+    // Nginx and similar buffer by default, which would defeat the entire point.
+    'X-Accel-Buffering': 'no',
+  });
+
+  const send = (event) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+
+  const history = boundHistory(request.body);
+  const { results, mode, rewrite } = await retrieveFor(question, history);
+
+  const sources =
+    results.map((result) => ({
+      title: result.title,
+      path: result.path,
+      url: `/docs?path=${encodeURIComponent(result.path)}`,
+      originalUrl: result.url,
+    })) ?? [];
+
+  if (!chatProvider.name) {
+    send({
+      type: 'final',
+      status: results.length ? 'partial' : 'refused',
+      answer: results.length
+        ? 'No model provider key is set, so I can only list the documentation pages that look relevant.'
+        : REFUSAL,
+      citations: [],
+      sources: results.length ? sources : [],
+    });
+    reply.raw.end();
+    return reply;
+  }
+
+  const requestedProvider =
+    typeof request.body?.provider === 'string' ? request.body.provider : undefined;
+  const llm = createLlm({ provider: requestedProvider });
+
+  // Sent up front so the UI can label the bubble before any text arrives.
+  send({ type: 'start', provider: llm.provider, providerLabel: llm.providerLabel, model: llm.model, mode, rewrite });
+
+  let final = null;
+  try {
+    for await (const event of streamAnswer({
+      question,
+      chunks: results.map((r) => ({ ...r, text: r.text || r.snippet || '' })),
+      llm,
+      history,
+      provider: llm.provider,
+      knownIdentifiers:
+        UNGROUNDED_CHECK_ENABLED && vectorStore ? getCorpusIdentifiers(vectorStore) : null,
+      canonicalSpellings: vectorStore ? getCanonicalSpellings(vectorStore) : null,
+    })) {
+      if (event.type === 'final') final = event;
+      send(event);
+      if (event.type === 'error') health.markFailed(llm.provider, new Error(event.message));
+    }
+  } catch (error) {
+    const classified = health.markFailed(llm.provider, error);
+    send({ type: 'error', message: `${llm.providerLabel} could not answer: ${classified.hint}` });
+    reply.raw.end();
+    return reply;
+  }
+
+  if (final) {
+    spendLimiter.record(llm.model, llm.lastUsage);
+    health.markOk(llm.provider);
+
+    const confidence = assessConfidence({
+      status: final.status,
+      results,
+      citations: final.citations ?? [],
+      attribution: final.attribution ?? null,
+      codeSamples: final.codeSamples ?? null,
+    });
+
+    /*
+     * Sent as its own event AFTER final, rather than folded into it. The answer
+     * text is what the user is waiting for; confidence, sources and the retrieval
+     * trace are supporting detail, and holding the answer back until the log has
+     * been written would give away the latency streaming just bought.
+     */
+    const questionId = await questionLog.record({
+      question,
+      rewritten: rewrite?.rewritten,
+      vector: results.queryVector,
+      status: final.status,
+      confidence: confidence?.level,
+      misattributed: final.attribution?.misattributed?.length || undefined,
+      ungrounded: final.attribution?.unsupported?.length || undefined,
+      provider: llm.provider,
+      model: llm.model,
+      retrieved: results,
+      tokens: llm.lastUsage?.total_tokens,
+      ms: Date.now() - startedAt,
+      streamed: true,
+    });
+
+    send({
+      type: 'meta',
+      questionId,
+      confidence,
+      sources: final.status === 'refused' ? [] : sources,
+      usage: llm.lastUsage,
+      retrieved: results.map((result) => ({
+        title: result.title,
+        path: result.path,
+        score: result.score,
+        ranks: result.ranks,
+        snippet: (result.snippet || result.text || '').slice(0, 400),
+      })),
+    });
+  }
+
+  reply.raw.end();
+  return reply;
 });
 
 // 3000, not 5173: 5173 is Vite's default dev-server port and reads as a

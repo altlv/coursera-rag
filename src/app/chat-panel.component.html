@@ -66,6 +66,13 @@
             Clear
           </button>
         }
+        @if (store.isLoading()) {
+          <!-- A streamed answer can run for many seconds; without this the only
+               way to stop one is to close the tab. -->
+          <button class="rail-icon-button" type="button" (click)="store.stop()" title="Stop generating">
+            Stop
+          </button>
+        }
         <button class="rail-icon-button" type="button" (click)="store.toggle()" title="Collapse the assistant">
           &#10095;
         </button>
@@ -117,7 +124,10 @@
               searched for: <em>{{ message.rewrite.rewritten }}</em>
             </p>
           }
-          <p class="bubble-text">{{ message.text }}</p>
+          <p class="bubble-text">
+            {{ message.text
+            }}@if (message.streaming) {<span class="stream-cursor" aria-hidden="true"></span>}
+          </p>
 
           @if (message.sources?.length) {
             <div class="bubble-sources" [class.closest]="message.status === 'partial'">

@@ -687,3 +687,32 @@
     writing-mode: horizontal-tb;
   }
 }
+
+/*
+ * A caret while text is arriving. The alternative - a spinner above the bubble -
+ * reads as "nothing is happening yet" when in fact the answer is already being
+ * written, which is the exact impression streaming exists to remove.
+ */
+.stream-cursor {
+  display: inline-block;
+  width: 0.5em;
+  height: 1em;
+  margin-left: 0.1em;
+  vertical-align: text-bottom;
+  background: currentColor;
+  opacity: 0.6;
+  animation: stream-blink 1s steps(2, start) infinite;
+}
+
+@keyframes stream-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Respect a stated preference; a blinking caret is a known migraine trigger. */
+@media (prefers-reduced-motion: reduce) {
+  .stream-cursor {
+    animation: none;
+  }
+}

@@ -60,6 +60,8 @@ These cover the three behaviours a RAG system has to get right.
 
 The third is the interesting one: it exercises the second line of defence. [Why that matters →](LEARN-RAG.md#three-outcomes-not-two)
 
+Answers **stream** as they are written, with a **Stop** control to abandon one mid-flight. The conversation survives a page refresh, and **New topic** stops earlier questions being used as context for the next one without wiping the transcript — a distinct thing from **Clear**, because follow-ups are *resolved against* history and that is only helpful while the subject is the same.
+
 Each answer shows the model that wrote it, a confidence badge, a thumbs up/down, and a collapsible **"How this answer was built"** with every passage, its score, the rank each retrieval method gave it, and the token count.
 
 Two checks run after the model writes:
